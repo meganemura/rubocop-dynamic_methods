@@ -74,14 +74,14 @@ class Feed
 
   ELEMENTS.each do |name|
     class_eval <<~RUBY, __FILE__, __LINE__ + 1
-      def #{name} = @values[:#{name}]
+      def #{name}; @values[:#{name}]; end
     RUBY
   end
 end
 ```
 
 ```text
-feed.rb:6:5: C: DynamicMethods/StringEval: Define this method with `def`, so a search for its name finds it. Not autocorrected: `ELEMENTS` is not frozen, and `include Parsing` runs between its assignment and the loop.
+feed.rb:6:5: C: DynamicMethods/StringEval: `class_eval` evaluates a string that defines methods named `#{name}`; write them with `def`, so a search finds them. Not autocorrected: `ELEMENTS` is not frozen, and `include Parsing` runs between its assignment and the loop.
 ```
 
 理由は、次に def を書く人やエージェントに向けて書いています。

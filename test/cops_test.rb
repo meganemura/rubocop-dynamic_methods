@@ -287,8 +287,33 @@ class CopsTest < Minitest::Test
   def test_a_refused_rewrite_names_its_reason_and_changes_nothing
     REFUSALS.each do |source, reason|
       offense = CopRunner.offenses(source).offenses.reject { _1.cop_name == "DynamicMethods/MethodMissing" }.first
-      assert_equal "Define this method with `def`, so a search for its name finds it. Not autocorrected: #{reason}.", offense&.message, source
+      assert offense&.message&.end_with?(" Not autocorrected: #{reason}."), "#{source}\n#{offense&.message}"
+      if offense.cop_name == "DynamicMethods/DefineMethod"
+        assert offense.message.start_with?("Define this method with `def`, so a search for its name finds it."), offense.message
+      end
       assert_equal source, CopRunner.run(source).source
+    end
+  end
+
+  # A string eval that is not rewritten says what it evaluates, since most
+  # such code defines no method in sight.
+  STRING_LEADS = {
+    "class A\n  instance_eval \"def a; end\"\nend\n" =>
+      "`instance_eval` evaluates a string that defines `a`; define it with `def`, so a search finds it.",
+    "class A\n  class_eval \"attr_reader :a\"\nend\n" =>
+      "`class_eval` evaluates a string that holds no def; run the code without a string, so a reader can search it.",
+    "class A\n  klass.class_eval code\nend\n" =>
+      "`klass.class_eval` evaluates code from `code`, so only running it shows which methods it defines.",
+    "class A\n  eval \"def \#{name}?; end\"\nend\n" =>
+      "`eval` evaluates a string that defines methods named `\#{name}?`; write them with `def`, so a search finds them.",
+    "class A\n  eval \"\#{code}\"\nend\n" =>
+      "`eval` evaluates a string that interpolates `\#{code}`, so only running it shows which methods it defines."
+  }.freeze
+
+  def test_a_refused_string_eval_says_what_it_evaluates
+    STRING_LEADS.each do |source, lead|
+      message = CopRunner.offenses(source).offenses.first&.message
+      assert message&.start_with?("#{lead} Not autocorrected: "), "#{source}\n#{message}"
     end
   end
 
@@ -299,5 +324,6 @@ class CopsTest < Minitest::Test
 
   def test_a_class_eval_with_a_block_and_a_plain_def_are_not_offenses
     assert_empty messages("class A\n  class_eval do\n    def a; end\n  end\n\n  def b; end\nend\n")
+    assert_empty messages("class A\n  def configure(&block) = instance_eval(&block)\nend\n")
   end
 end
