@@ -60,4 +60,6 @@ After the first successful push, RubyGems turns it into the gem's trusted publis
    Leave the workflow repository fields empty: the workflow lives in this repository.
 3. Choose Create Pending trusted publisher.
 
+The publish job names the owning account by its RubyGems.org id (`RUBYGEMS_OWNER` in `release.yml`), which RubyGems needs to create a new gem from a pending publisher.
+
 A rename of the workflow file, of the environment, or of the repository breaks publishing until the publisher on RubyGems is changed to match.
