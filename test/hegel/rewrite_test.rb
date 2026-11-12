@@ -207,12 +207,15 @@ class RewriteTest < Minitest::Test
     Hegel.test(**SETTINGS) do |tc|
       opener = tc.draw(sampled_from(OPENERS))
       names = tc.draw(arrays(sampled_from(NAMES), min_size: 1, max_size: 3, unique: true))
-      list = tc.draw(sampled_from(%w[symbols words constant hash]))
+      list = tc.draw(sampled_from(%w[symbols words constant unfrozen keys hash]))
       section = tc.draw(sampled_from(["", "private\n  ", "public\n  "]))
       loop_head = case list
                   when "symbols" then "[#{names.map { _1.to_sym.inspect }.join(", ")}].each do |name|"
                   when "words" then "#{names.inspect}.each do |name|"
                   when "constant" then "NAMES = #{names.map(&:to_sym).inspect}.freeze\n  NAMES.each do |name|"
+                  # A def between the list and the loop runs nothing.
+                  when "unfrozen" then "NAMES = #{names.map(&:to_sym).inspect}\n  def names = NAMES\n  NAMES.each do |name|"
+                  when "keys" then "SIZES = { #{names.map { "#{_1.to_sym.inspect} => #{_1.size}" }.join(", ")} }\n  SIZES.keys.each do |name|"
                   when "hash" then "{ #{names.map { "#{_1.to_sym.inspect} => #{_1.size}" }.join(", ")} }.each do |name, size|"
                   end
       result = list == "hash" ? "\#{size}" : tc.draw(sampled_from([":\#{name}", "'\#{name}'", "%(\#{name})"]))

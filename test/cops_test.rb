@@ -156,6 +156,39 @@ class CopsTest < Minitest::Test
     RUBY
   end
 
+  def test_a_loop_over_an_unfrozen_constant_or_its_keys_is_unrolled
+    source = <<~'RUBY'
+      class Route
+        VERBS = %i[get post]
+        SIZES = { small: 1 }
+
+        def verbs = VERBS
+
+        VERBS.each { |verb| define_method("#{verb}?") { verb } }
+        SIZES.keys.each { |size| define_method(size) { size } }
+      end
+    RUBY
+    assert_equal <<~'RUBY', CopRunner.run(source).source
+      class Route
+        VERBS = %i[get post]
+        SIZES = { small: 1 }
+
+        def verbs = VERBS
+
+        def get?
+          :get
+        end
+
+        def post?
+          :post
+        end
+        def small
+          :small
+        end
+      end
+    RUBY
+  end
+
   REFUSALS = {
     "class A\n  x = 1\n  define_method(:a) { x }\nend\n" =>
       "the block shares the local `x` with the code around it",
@@ -177,6 +210,12 @@ class CopsTest < Minitest::Test
       "the block shares the local `name` with the code around it",
     "class A\n  NAMES.each { |n| define_method(n) { 1 } }\nend\n" =>
       "the loop runs over `NAMES`, which this class body does not set once before the loop",
+    "class A\n  NAMES = %i[a]\n  include B\n  NAMES.each { |n| define_method(n) { 1 } }\nend\n" =>
+      "`NAMES` is not frozen, and `include B` runs between its assignment and the loop",
+    "class A\n  NAMES = %i[a]\n  NAMES.each do |n|\n    NAMES << :b\n    define_method(n) { 1 }\n  end\nend\n" =>
+      "`NAMES` is not frozen, and the loop names it, so it could grow while the loop runs",
+    "class A\n  B::NAMES.each { |n| define_method(n) { 1 } }\nend\n" =>
+      "the loop runs over `B::NAMES`, a constant of another module, which another file can change",
     "class A\n  %w[a b].each { |n| define_method(:x) { n } }\nend\n" =>
       "the block reads the string \"a\", which is one shared object only under `# frozen_string_literal: true`",
     "class A\n  [1.5].each { |n| define_method(:x) { n } }\nend\n" =>

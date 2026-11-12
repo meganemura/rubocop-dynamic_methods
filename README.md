@@ -68,6 +68,7 @@ When it cannot be sure, the offense says why and the code stays as it is:
 ```ruby
 class Feed
   ELEMENTS = %w[title link]
+  include Parsing
 
   ELEMENTS.each do |name|
     class_eval <<~RUBY, __FILE__, __LINE__ + 1
@@ -78,7 +79,7 @@ end
 ```
 
 ```text
-feed.rb:5:5: C: DynamicMethods/StringEval: Define this method with def, so a search for its name finds it. Not autocorrected: ELEMENTS is not a frozen literal list.
+feed.rb:6:5: C: DynamicMethods/StringEval: Define this method with `def`, so a search for its name finds it. Not autocorrected: `ELEMENTS` is not frozen, and `include Parsing` runs between its assignment and the loop.
 ```
 
 The reason is written for whoever writes the defs next, an agent or a person.
@@ -88,7 +89,9 @@ RuboCop reads the source and never runs it, so a rewrite is possible only when t
 - The call has no receiver, or `self`, and sits directly in a class or module body, or in an `each` over a literal Array or Hash there.
   A block of `class_eval`, `module_eval`, `class_exec`, `module_exec`, `Class.new`, `Module.new`, `Struct.new`, or `Data.define` counts as a class body: a def there defines on the same module, with the same visibility and constants.
   A block of any other method, such as `included do`, does not, because only the code that runs it knows where it defines.
-  A constant counts as a literal list when the same body sets it once, before the loop, to a frozen literal.
+  A constant counts as a literal list when the same body sets it once, before the loop, to a literal Array or Hash, and `LIST.keys` and `LIST.values` count too.
+  If the list is not frozen, only defs, literal constants, and calls such as `attr_reader :a` may run between the assignment and the loop, so nothing can change the list.
+  A constant of another module, such as `Base::NAMES`, is refused, because another file can change it.
 - The other calls in such a loop, such as `alias_method`, `attr_reader`, `private`, or `ruby2_keywords`, are copied once per value, after the def they follow.
   A name built from the loop variable becomes a Symbol, as in `alias_method :refute_text, :assert_text`.
   The loop is refused when it assigns a local, calls a bare `private`, or uses `next`, `break`, or `return`, because a block and a class body treat those differently.

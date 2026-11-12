@@ -33,6 +33,8 @@ module RuboCop
       # Of those, the ones that answer the same for a String and its Symbol:
       # attr_* answer Symbols, and alias_method the new name's Symbol.
       SAME_RESULT = %i[alias_method attr_reader attr_writer attr_accessor].freeze
+      LITERALS = %i[array hash pair sym str int float nil true false].freeze
+      CORE_PARENTS = %i[Object StandardError RuntimeError ArgumentError TypeError].freeze
       NOT_IN_BODY = "it is not called directly in a class or module body, or a block that opens one"
       # A fixnum is the same object on every read; a larger Integer is not.
       FIXNUM = (-(2**62))...(2**62)
@@ -282,6 +284,8 @@ module RuboCop
 
       # The literals a loop runs over: Values, or [Value, Value] pairs.
       def list_of(node, scope_body, loop)
+        return hash_part(node, scope_body, loop) if node&.send_type? && %i[keys values].include?(node.method_name) && !node.arguments?
+
         node = constant_value(node, scope_body, loop) if node&.const_type?
         case node&.type
         when :array
@@ -297,19 +301,85 @@ module RuboCop
         end
       end
 
-      # A constant set once in this body, before the loop, to a frozen literal.
+      # `LIST.keys` or `LIST.values` of a literal Hash, as the Values of one side.
+      def hash_part(node, scope_body, loop)
+        pairs = list_of(node.receiver, scope_body, loop)
+        raise Refusal, "the loop runs over `#{node.source}`, which is not the keys or values of a literal Hash" unless pairs.first.is_a?(Array)
+
+        pairs.map { node.method?(:keys) ? _1.first : _1.last }
+      end
+
+      # A constant set once in this body, before the loop, to a literal list.
+      # A bare constant could also come from an outer module or an ancestor,
+      # which another file can set or reopen, so only this body counts.
       def constant_value(node, scope_body, loop)
+        unless node.namespace.nil?
+          raise Refusal, "the loop runs over `#{node.source}`, a constant of another module, which another file can change"
+        end
+
         sets = statements_of(scope_body).select { _1.casgn_type? && _1.namespace.nil? && _1.name == node.short_name }
-        unless node.namespace.nil? && sets.size == 1 && sets.first.source_range.end_pos <= loop.source_range.begin_pos
+        unless sets.size == 1 && sets.first.source_range.end_pos <= loop.source_range.begin_pos
           raise Refusal, "the loop runs over `#{node.source}`, which this class body does not set once before the loop"
         end
 
         value = sets.first.expression
-        unless value&.send_type? && value.method?(:freeze) && !value.arguments? && %i[array hash].include?(value.receiver&.type)
-          raise Refusal, "`#{node.source}` is not a frozen literal list"
+        if value&.send_type? && value.method?(:freeze) && !value.arguments? && %i[array hash].include?(value.receiver&.type)
+          return value.receiver
         end
+        raise Refusal, "`#{node.source}` is set to `#{value&.source}`, which is not a literal list" unless %i[array hash].include?(value&.type)
 
-        value.receiver
+        check_untouched(node.short_name, sets.first, loop, scope_body)
+        value
+      end
+
+      # An unfrozen list stays as written only when no code between its
+      # assignment and the loop could change it: the statements there may
+      # only define, or call a method of NAME_TAKERS with literal names.
+      def check_untouched(name, set, loop, scope_body)
+        between = statements_of(scope_body).select do
+          _1.source_range.begin_pos >= set.source_range.end_pos && _1.source_range.end_pos <= loop.source_range.begin_pos
+        end
+        busy = between.find { !inert?(_1) || names_now?(_1, name) }
+        if busy
+          raise Refusal, "`#{name}` is not frozen, and `#{busy.source.lines.first.strip}` runs between its assignment and the loop"
+        end
+        return unless loop.body&.each_node(:const)&.any? { _1.short_name == name }
+
+        raise Refusal, "`#{name}` is not frozen, and the loop names it, so it could grow while the loop runs"
+      end
+
+      # Whether the code reads the constant as it runs; a def's body reads it
+      # only when the method is called, after the loop.
+      def names_now?(node, name)
+        return false if %i[def defs].include?(node.type)
+        return true if node.const_type? && node.short_name == name
+
+        node.each_child_node.any? { names_now?(_1, name) }
+      end
+
+      # Code that defines and runs nothing else, so it cannot reach a list.
+      # Reading a constant can run code too, through autoload, and a parent
+      # class can run code through `inherited`, so only core parents count.
+      def inert?(node)
+        case node.type
+        when :def, :defs, :str, :sym, :int, :nil, :true, :false then true
+        when :class, :module
+          node.identifier.namespace.nil? &&
+            (node.type == :module || node.parent_class.nil? || core_constant?(node.parent_class, CORE_PARENTS)) &&
+            statements_of(node.body).all? { inert?(_1) }
+        when :casgn
+          node.namespace.nil? && node.expression && literal_tree?(node.expression)
+        when :send
+          self.class.implicit?(node) && (NAME_TAKERS + %i[private_constant public_constant]).include?(node.method_name) &&
+            node.arguments.all? { %i[sym str].include?(_1.type) }
+        else false
+        end
+      end
+
+      # A literal made of literals, frozen or not.
+      def literal_tree?(node)
+        node = node.receiver if node.send_type? && node.method?(:freeze) && !node.arguments? && node.receiver
+        node.each_node.all? { LITERALS.include?(_1.type) }
       end
 
       def value_of(node)

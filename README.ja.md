@@ -70,6 +70,7 @@ RuboCop 1.72 以降と Ruby 3.2 以降で動きます。
 ```ruby
 class Feed
   ELEMENTS = %w[title link]
+  include Parsing
 
   ELEMENTS.each do |name|
     class_eval <<~RUBY, __FILE__, __LINE__ + 1
@@ -80,7 +81,7 @@ end
 ```
 
 ```text
-feed.rb:5:5: C: DynamicMethods/StringEval: Define this method with def, so a search for its name finds it. Not autocorrected: ELEMENTS is not a frozen literal list.
+feed.rb:6:5: C: DynamicMethods/StringEval: Define this method with `def`, so a search for its name finds it. Not autocorrected: `ELEMENTS` is not frozen, and `include Parsing` runs between its assignment and the loop.
 ```
 
 理由は、次に def を書く人やエージェントに向けて書いています。
@@ -94,7 +95,12 @@ RuboCop はソースを読むだけで実行しません。
   `included do` のような他のメソッドのブロックは扱いません。
   どこに定義されるかは、そのブロックを実行するコードにしか分からないからです。
   または、そこにあるリテラルの Array か Hash に対する `each` の中にあること。
-  定数は、同じ本体の中でループより前に一度だけ、freeze したリテラルを入れていればリテラルとして扱います。
+  定数は、同じ本体の中でループより前に一度だけ、リテラルの Array か Hash を入れていればリテラルとして扱います。
+  `LIST.keys` と `LIST.values` も同じです。
+  freeze していないリストでは、代入からループまでの間に、def、リテラルの定数、`attr_reader :a` のような呼び出ししか置けません。
+  そうすれば、間でリストが変わることはないからです。
+  `Base::NAMES` のような他のモジュールの定数は書き直しません。
+  別のファイルで変えられるからです。
 - そのループの中の他の呼び出し(`alias_method`、`attr_reader`、`private`、`ruby2_keywords` など)は、値ごとに、前の def のあとへ写します。
   ループ変数から作った名前は、`alias_method :refute_text, :assert_text` のように Symbol にします。
   ループがローカル変数に代入するとき、引数なしの `private` を呼ぶとき、`next`、`break`、`return` を使うときは書き直しません。
