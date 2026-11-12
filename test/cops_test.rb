@@ -226,7 +226,19 @@ class CopsTest < Minitest::Test
     "class A\n  x = 1\n  define_method(:a) { x }\nend\n" =>
       "the block shares the local `x` with the code around it",
     "class A\n  define_method(:a, instance_method(:b))\nend\n" =>
-      "the body is `instance_method(:b)`, not a block",
+      "it copies the method `b` as it is, and a def would be a new method that calls it",
+    "class A\n  define_method(:inspect, ::Kernel.instance_method(:inspect))\nend\n" =>
+      "it copies the method `Kernel#inspect` as it is, and a def would be a new method that calls it",
+    "class A\n  NAMES.each { |m| define_method(m, ::Kernel.instance_method(m)) }\nend\n" =>
+      "it copies a method of `Kernel` chosen by `m`, as it is",
+    "class A\n  define_method(:a, &block)\nend\n" =>
+      "the body is the block in `block`, which the code that runs this passes in",
+    "class A\n  define_method(:mu_pp, &:pretty_inspect)\nend\n" =>
+      "the body is `&:pretty_inspect`, which calls `pretty_inspect` on the method\x27s first argument",
+    "class A\n  define_method(:a, -> { 1 })\nend\n" =>
+      "the body is a lambda, not a block",
+    "class A\n  define_method(:a, other)\nend\n" =>
+      "the body is `other`, not a block",
     "class A\n  klass.define_method(:a) { 1 }\nend\n" =>
       "it defines the method on `klass`",
     "class A\n  define_method(:a) { _1 }\nend\n" =>
