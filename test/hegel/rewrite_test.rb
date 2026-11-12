@@ -83,7 +83,8 @@ class RewriteTest < Minitest::Test
     end
   end
 
-  def check(source)
+  # A macro keeps its own offense: the macro stays for other callers.
+  def check(source, macro: false)
     result = CopRunner.run(source)
     return :unchanged if result.source == source
 
@@ -92,6 +93,7 @@ class RewriteTest < Minitest::Test
       compare(load_class(source, "Original#{number}", root), load_class(result.source, "Written#{number}", root))
     end
     left = CopRunner.offenses(result.source).offenses.reject { _1.cop_name == "DynamicMethods/MethodMissing" }
+    left = left.reject { _1.message.include?("only its callers know") } if macro
     assert_empty left.map(&:message)
     :corrected
   end
@@ -198,6 +200,53 @@ class RewriteTest < Minitest::Test
       RUBY
       tc.note(source)
       seen[check(source)] += 1
+    end
+    assert_operator seen[:corrected], :>, 50, seen.inspect
+  end
+
+  # Statements a macro can hold; `name` is its parameter.
+  MACRO_BODIES = [
+    "define_method(name) { |x = 1| [name, x] }",
+    "define_method(:\"\#{name}?\") { !name.nil? }",
+    "define_singleton_method(name) { name }",
+    "class_eval \"def \#{name}_s(by = 1) = [:\#{name}, by]\", __FILE__, __LINE__",
+    'alias_method :"#{name}_alias", name',
+    "private name"
+  ].freeze
+
+  def test_a_corrected_macro_call_defines_what_the_macro_defined
+    seen = Hash.new(0)
+    Hegel.test(**SETTINGS) do |tc|
+      names = tc.draw(arrays(sampled_from(NAMES), min_size: 1, max_size: 3, unique: true))
+      body = [MACRO_BODIES[0], *tc.draw(arrays(sampled_from(MACRO_BODIES[1..]), max_size: 3, unique: true))]
+      singleton = tc.draw(booleans)
+      macro = if singleton
+                "class << self\n    def mk(name)\n      #{body.join("\n      ")}\n    end\n  end"
+              else
+                "def self.mk(name)\n    #{body.join("\n    ")}\n  end"
+              end
+      section = tc.draw(sampled_from(["", "private\n\n  ", "public\n\n  "]))
+      source = <<~RUBY
+        # frozen_string_literal: #{tc.draw(booleans)}
+
+        class KLASS
+          #{macro}
+
+          #{section}#{names.map { "mk #{_1.to_sym.inspect}" }.join("\n  ")}
+        end
+      RUBY
+      tc.note(source)
+      kind = check(source, macro: true)
+      seen[kind] += 1
+      next unless kind == :corrected
+
+      Dir.mktmpdir do |root|
+        number = @@classes += 1
+        original = load_class(source, "Original#{number}", root)
+        written = load_class(CopRunner.run(source).source, "Written#{number}", root)
+        assert_equal original.singleton_methods.sort, written.singleton_methods.sort
+        (original.singleton_methods - [:mk]).each { |m| assert_equal outcome { original.send(m) }, outcome { written.send(m) } }
+      end
     end
     assert_operator seen[:corrected], :>, 50, seen.inspect
   end

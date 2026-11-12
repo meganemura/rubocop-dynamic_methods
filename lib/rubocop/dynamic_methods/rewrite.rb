@@ -10,8 +10,11 @@ module RuboCop
     class Rewrite
       Refusal = Class.new(StandardError)
 
-      # The text that replaces a range of the file, and the names it defines.
-      Plan = Data.define(:range, :text, :names)
+      # The texts that replace ranges of the file, as [range, text] pairs, and
+      # the names they define.
+      Plan = Data.define(:edits, :names) do
+        def range = edits.first.first
+      end
 
       # One literal that a loop variable holds during one run of the loop.
       Value = Data.define(:object, :code)
@@ -66,12 +69,14 @@ module RuboCop
           outer = assigned_locals(scope_body, except: statement) | visible_locals(container)
           run = {}
           text, names = write(statement, run, outer, moved: 0, scope_body:)
-          Plan.new(range: full_range(statement), text:, names:)
+          Plan.new(edits: [[full_range(statement), text]], names:)
         elsif BLOCKS.include?(container.type) && container.body.equal?(body) && ITERATORS.include?(container.method_name)
           plan_loop(container)
         elsif BLOCKS.include?(container.type)
           raise Refusal, "it is inside `#{container.method_name} do`, and only the code that runs the block knows " \
                          "which module it defines on"
+        elsif %i[def defs].include?(container.type)
+          plan_macro(container)
         else
           raise Refusal, NOT_IN_BODY
         end
@@ -161,12 +166,93 @@ module RuboCop
             [text, true]
           end
         end
-        # A blank line sets each def apart; calls such as `alias_method` that
-        # follow one another stay together.
-        text = pieces.each_cons(2).map { |(_, a), (b_text, b)| (a || b ? "\n\n" : "\n") + indent + b_text }
-        text = pieces.first.first + text.join
         notes = loose_comments(loop, statements).map { "#{_1}\n#{indent}" }.join
-        Plan.new(range: full_range(loop), text: notes + text, names:)
+        Plan.new(edits: [[full_range(loop), notes + join_pieces(pieces, indent)]], names:)
+      end
+
+      # A class method that defines methods, written out at each call in the
+      # same class body that gives it literal arguments. Such a call runs the
+      # macro's own method: `def self.name` (or `def name` in `class << self`)
+      # sits on the class's singleton class, which comes first in the lookup
+      # unless a module is prepended to it. The macro stays for other callers.
+      def plan_macro(macro)
+        name = macro.method_name
+        reason = "it runs inside the method `#{name}`, and only its callers know which module and names it defines"
+        holder = macro.parent&.begin_type? ? macro.parent.parent : macro.parent
+        singleton = holder&.sclass_type? && holder.children.first.self_type?
+        scope = singleton ? enclosing(holder).first : holder
+        raise Refusal, reason unless (macro.defs_type? ? macro.receiver.self_type? : singleton) && %i[class module].include?(scope&.type)
+
+        scope_body = scope.body
+        calls = macro_calls(macro, scope_body)
+        raise Refusal, "#{reason}; no call in this class body gives it literal arguments" if calls.empty?
+
+        check_macro(macro, scope_body, singleton)
+        names = []
+        edits = calls.map do |call, run|
+          check_visibility(scope_body, call, "a method such as `#{name}`")
+          pieces = statements_of(macro.body).map do |statement|
+            moved = statement.loc.column - call.loc.column
+            raise Refusal, "the method `#{name}` is not indented under its callers" unless moved.positive?
+            next [copy(statement, run, moved:, loop: macro), false] unless self.class.statement?(statement)
+
+            text, defined = write(statement, run, run.keys, moved:, scope_body:, loop: macro, anchor: call)
+            names.concat(defined)
+            [text, true]
+          end
+          [full_range(call), join_pieces(pieces, " " * call.loc.column)]
+        end
+        Plan.new(edits:, names:)
+      end
+
+      # The calls of the macro after its def, each a statement of the class
+      # body with one literal for each parameter, as [call, run] pairs.
+      def macro_calls(macro, scope_body)
+        params = macro.arguments.children
+        raise Refusal, "the method `#{macro.method_name}` takes parameters other than plain names" unless params.all?(&:arg_type?)
+
+        statements_of(scope_body).filter_map do |call|
+          next unless call.send_type? && call.receiver.nil? && call.method_name == macro.method_name
+          next unless call.source_range.begin_pos > macro.source_range.end_pos && call.arguments.size == params.size
+
+          values = call.arguments.map { value_of(_1) }
+          [call, params.map(&:name).zip(values).to_h]
+        rescue Refusal
+          nil
+        end
+      end
+
+      def check_macro(macro, scope_body, singleton)
+        defs = scope_body.each_node(:def, :defs).count do |node|
+          node.method_name == macro.method_name && (node.defs_type? || node.parent&.sclass_type? || node.parent&.parent&.sclass_type?)
+        end
+        raise Refusal, "the class defines `#{macro.method_name}` more than once" unless defs == 1
+        # Code in a def runs later, when it is called; the class body runs now.
+        if runs_in_body(scope_body).any? { _1.send_type? && (_1.method?(:prepend) || _1.method?(:singleton_class)) }
+          raise Refusal, "the class prepends a module or opens its singleton class, which could take the call"
+        end
+        # A block in `class << self` looks constants up there first; a def in
+        # the class body does not.
+        return unless singleton && macro.body&.each_node(:const)&.any? { _1.namespace.nil? }
+
+        raise Refusal, "the method `#{macro.method_name}` sits in `class << self` and names a constant, " \
+                       "which a def in the class body would look up elsewhere"
+      end
+
+      # The nodes of a body that run with it, leaving out the bodies of defs.
+      def runs_in_body(node, found = [])
+        return found unless node.is_a?(RuboCop::AST::Node) && !%i[def defs].include?(node.type)
+
+        found << node
+        node.children.each { runs_in_body(_1, found) }
+        found
+      end
+
+      # A blank line sets each def apart; calls such as `alias_method` that
+      # follow one another stay together. Pieces are [text, whether it defines].
+      def join_pieces(pieces, indent)
+        rest = pieces.each_cons(2).map { |(_, a), (b_text, b)| (a || b ? "\n\n" : "\n") + indent + b_text }
+        pieces.first.first + rest.join
       end
 
       # A statement of the loop that defines nothing, such as `alias_method` or
@@ -193,33 +279,39 @@ module RuboCop
         when :lvar
           edits << loop_read(node, run.fetch(node.children.first)) if run.key?(node.children.first)
         when :lvasgn
-          raise Refusal, "the loop assigns the local `#{node.children.first}`, which each run of the loop starts afresh"
+          raise Refusal, "#{where(loop)} assigns the local `#{node.children.first}`, which each run starts afresh"
         when :arg, :optarg, :restarg, :kwarg, :kwoptarg, :kwrestarg, :blockarg, :shadowarg
-          raise Refusal, "a block in the loop reuses the loop's name `#{node.name}`" if run.key?(node.name)
+          raise Refusal, "a block in #{where(loop)} reuses the name `#{node.name}`" if run.key?(node.name)
         when :def, :defs
-          raise Refusal, "the loop holds a def, which cannot see the loop variable"
+          raise Refusal, "#{where(loop)} holds a def, which cannot see its locals"
         when :class, :module, :sclass
-          raise Refusal, "the loop opens a class or module, which cannot see the loop variable"
+          raise Refusal, "#{where(loop)} opens a class or module, which cannot see its locals"
         when :casgn
-          raise Refusal, "the loop assigns a constant"
+          raise Refusal, "#{where(loop)} assigns a constant"
         when :next, :break, :redo, :return
-          raise Refusal, "the loop uses `#{node.type}`" if own_level?(node, loop)
+          raise Refusal, "#{where(loop)} uses `#{node.type}`" if own_level?(node, loop)
+        when :yield, :super, :zsuper
+          # A method has a block and a super method of its own; a class body has neither.
+          raise Refusal, "the method uses `#{node.type == :yield ? "yield" : "super"}`" if %i[def defs].include?(loop.type)
         when :send
-          return copy_send(node, statement, run, edits)
+          return copy_send(node, statement, run, edits, loop)
         end
         []
       end
 
-      def copy_send(send, statement, run, edits)
+      def copy_send(send, statement, run, edits, loop)
         return [] unless self.class.implicit?(send)
 
         name = send.method_name
-        raise Refusal, "the loop calls `#{name}`, which sees the loop's locals" if LOCAL_READERS.include?(name)
+        raise Refusal, "#{where(loop)} calls `#{name}`, which sees its locals" if LOCAL_READERS.include?(name)
         if VISIBILITY.include?(name) && !send.arguments?
-          raise Refusal, "the loop calls a bare `#{name}`, which a block and a class body scope differently"
+          raise Refusal, "#{where(loop)} calls a bare `#{name}`, which a class body scopes differently"
+        end
+        if name == :__method__ && %i[def defs].include?(loop.type)
+          raise Refusal, "#{where(loop)} reads `__method__`, which is nil in a class body"
         end
         if (SPELLS + EVALS).include?(name)
-          raise Refusal, "the loop calls `#{name}` inside `#{statement.source.lines.first.strip}`"
+          raise Refusal, "#{where(loop)} calls `#{name}` inside `#{statement.source.lines.first.strip}`"
         end
         return [] unless NAME_TAKERS.include?(name) && (SAME_RESULT.include?(name) || discarded?(send, statement))
 
@@ -228,6 +320,10 @@ module RuboCop
           symbol = folded_name(argument, run)
           edits << [argument.source_range, symbol.inspect] if symbol
         end
+      end
+
+      def where(loop)
+        %i[def defs].include?(loop.type) ? "the method `#{loop.method_name}`" : "the loop"
       end
 
       # A call whose value nothing reads: the statement, or a branch of an
@@ -422,11 +518,11 @@ module RuboCop
         names.uniq
       end
 
-      def write(statement, run, outer, moved:, scope_body:, loop: nil)
+      def write(statement, run, outer, moved:, scope_body:, loop: nil, anchor: loop || statement)
         if BLOCKS.include?(statement.type)
-          write_block(statement, run, outer, moved:, loop:, column: (loop || statement).loc.column)
+          write_block(statement, run, outer, moved:, loop:, column: anchor.loc.column)
         else
-          write_string(statement, run, scope_body:, anchor: loop || statement)
+          write_string(statement, run, scope_body:, anchor:)
         end
       end
 
@@ -557,14 +653,14 @@ module RuboCop
       end
 
       # A def a string eval writes is public even after a bare `private`.
-      def check_visibility(scope_body, anchor)
+      def check_visibility(scope_body, anchor, maker = "a string eval")
         last = statements_of(scope_body)
                .take_while { _1.source_range.begin_pos < anchor.source_range.begin_pos }
                .select { _1.send_type? && _1.receiver.nil? && !_1.arguments? && VISIBILITY.include?(_1.method_name) }
                .last
         return if last.nil? || last.method?(:public)
 
-        raise Refusal, "it follows a bare `#{last.method_name}`, and a def from a string eval stays public"
+        raise Refusal, "it follows a bare `#{last.method_name}`, and a def from #{maker} stays public"
       end
 
       def string_value(node, run)

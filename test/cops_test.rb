@@ -189,6 +189,39 @@ class CopsTest < Minitest::Test
     RUBY
   end
 
+  def test_a_macro_call_in_the_same_body_becomes_the_defs_the_macro_makes
+    source = <<~'RUBY'
+      # frozen_string_literal: true
+
+      class Example
+        def self.delegate_to_metadata(key)
+          define_method(key) { @metadata[key] }
+        end
+
+        # The file it was defined in.
+        delegate_to_metadata :file_path
+        delegate_to_metadata :line_number
+      end
+    RUBY
+    assert_equal <<~'RUBY', CopRunner.run(source).source
+      # frozen_string_literal: true
+
+      class Example
+        def self.delegate_to_metadata(key)
+          define_method(key) { @metadata[key] }
+        end
+
+        # The file it was defined in.
+        def file_path
+          @metadata[:file_path]
+        end
+        def line_number
+          @metadata[:line_number]
+        end
+      end
+    RUBY
+  end
+
   REFUSALS = {
     "class A\n  x = 1\n  define_method(:a) { x }\nend\n" =>
       "the block shares the local `x` with the code around it",
@@ -203,7 +236,14 @@ class CopsTest < Minitest::Test
     "class A\n  define_method(:a) { binding }\nend\n" =>
       "the block calls `binding`, which sees the locals around the block",
     "class A\n  def self.make(name)\n    define_method(name) { 1 }\n  end\nend\n" =>
-      "it is not called directly in a class or module body, or a block that opens one",
+      "it runs inside the method `make`, and only its callers know which module and names it defines; " \
+      "no call in this class body gives it literal arguments",
+    "class A\n  def self.make(name)\n    define_method(name) { 1 }\n  end\n\n  private\n\n  make :a\nend\n" =>
+      "it follows a bare `private`, and a def from a method such as `make` stays public",
+    "class A\n  def self.make(name)\n    define_method(name) { yield }\n  end\n\n  make(:a) { 1 }\n  make :b\nend\n" =>
+      "the block uses `yield`",
+    "class A\n  def make(name)\n    define_method(name) { 1 }\n  end\nend\n" =>
+      "it runs inside the method `make`, and only its callers know which module and names it defines",
     "module Ext\n  included do\n    define_method(:x) { 1 }\n  end\nend\n" =>
       "it is inside `included do`, and only the code that runs the block knows which module it defines on",
     "def self.build(name)\n  Class.new do\n    define_method(:label) { name }\n  end\nend\n" =>
@@ -221,9 +261,9 @@ class CopsTest < Minitest::Test
     "class A\n  [1.5].each { |n| define_method(:x) { n } }\nend\n" =>
       "the list holds `1.5`, which is not a symbol, string, small integer, nil, true, or false",
     "class A\n  %i[a].each do |n|\n    x = n\n    define_method(n) { 1 }\n  end\nend\n" =>
-      "the loop assigns the local `x`, which each run of the loop starts afresh",
+      "the loop assigns the local `x`, which each run starts afresh",
     "class A\n  %i[a].each do |n|\n    private\n    define_method(n) { 1 }\n  end\nend\n" =>
-      "the loop calls a bare `private`, which a block and a class body scope differently",
+      "the loop calls a bare `private`, which a class body scopes differently",
     "class A\n  %i[a].each do |n|\n    define_method(n) { 1 }\n    next if n == :a\n  end\nend\n" =>
       "the loop uses `next`",
     "class A\n  define_method(:\"two words\") { 1 }\nend\n" =>

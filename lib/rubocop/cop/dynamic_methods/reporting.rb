@@ -28,7 +28,7 @@ module RuboCop
           else
             corrected_ranges << plan.range
             add_offense(node.loc.selector, message: message_for(node, plan)) do |corrector|
-              corrector.replace(plan.range, plan.text)
+              plan.edits.each { |range, text| corrector.replace(range, text) }
             end
           end
         end

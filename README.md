@@ -92,6 +92,9 @@ RuboCop reads the source and never runs it, so a rewrite is possible only when t
   A constant counts as a literal list when the same body sets it once, before the loop, to a literal Array or Hash, and `LIST.keys` and `LIST.values` count too.
   If the list is not frozen, only defs, literal constants, and calls such as `attr_reader :a` may run between the assignment and the loop, so nothing can change the list.
   A constant of another module, such as `Base::NAMES`, is refused, because another file can change it.
+- A class method that defines methods, such as `def self.delegate_to_metadata(key)`, is written out at each call in the same class body that gives it literal arguments: `delegate_to_metadata :file_path` becomes `def file_path`.
+  The class method stays for other callers.
+  A call after a bare `private` is refused, because a method that another method defines is public.
 - The other calls in such a loop, such as `alias_method`, `attr_reader`, `private`, or `ruby2_keywords`, are copied once per value, after the def they follow.
   A name built from the loop variable becomes a Symbol, as in `alias_method :refute_text, :assert_text`.
   The loop is refused when it assigns a local, calls a bare `private`, or uses `next`, `break`, or `return`, because a block and a class body treat those differently.

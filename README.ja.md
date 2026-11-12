@@ -101,6 +101,11 @@ RuboCop はソースを読むだけで実行しません。
   そうすれば、間でリストが変わることはないからです。
   `Base::NAMES` のような他のモジュールの定数は書き直しません。
   別のファイルで変えられるからです。
+- `def self.delegate_to_metadata(key)` のようにメソッドを定義するクラスメソッドは、同じクラスの本体でリテラルを渡して呼んでいる場所に展開します。
+  `delegate_to_metadata :file_path` は `def file_path` になります。
+  クラスメソッドそのものは、他から呼ばれるかもしれないので残します。
+  引数なしの `private` のあとの呼び出しは書き直しません。
+  他のメソッドの中で定義したメソッドは public になるからです。
 - そのループの中の他の呼び出し(`alias_method`、`attr_reader`、`private`、`ruby2_keywords` など)は、値ごとに、前の def のあとへ写します。
   ループ変数から作った名前は、`alias_method :refute_text, :assert_text` のように Symbol にします。
   ループがローカル変数に代入するとき、引数なしの `private` を呼ぶとき、`next`、`break`、`return` を使うときは書き直しません。
