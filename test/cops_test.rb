@@ -91,6 +91,37 @@ class CopsTest < Minitest::Test
     RUBY
   end
 
+  def test_a_block_that_opens_a_class_is_a_class_body
+    source = <<~'RUBY'
+      Point = Struct.new(:x, :y) do
+        %i[x y].each do |axis|
+          define_method(:"#{axis}?") { !self[axis].nil? }
+        end
+      end
+
+      Point.class_eval do
+        define_method(:origin?) { x.zero? && y.zero? }
+      end
+    RUBY
+    assert_equal <<~'RUBY', CopRunner.run(source).source
+      Point = Struct.new(:x, :y) do
+        def x?
+          !self[:x].nil?
+        end
+
+        def y?
+          !self[:y].nil?
+        end
+      end
+
+      Point.class_eval do
+        def origin?
+          x.zero? && y.zero?
+        end
+      end
+    RUBY
+  end
+
   def test_a_singleton_method_becomes_a_def_on_self
     source = "class Config\n  define_singleton_method(:load) { |path| new(path) }\nend\n"
     assert_equal "class Config\n  def self.load(path)\n    new(path)\n  end\nend\n", CopRunner.run(source).source
@@ -110,7 +141,11 @@ class CopsTest < Minitest::Test
     "class A\n  define_method(:a) { binding }\nend\n" =>
       "the block calls `binding`, which sees the locals around the block",
     "class A\n  def self.make(name)\n    define_method(name) { 1 }\n  end\nend\n" =>
-      "it is not called directly in a class or module body",
+      "it is not called directly in a class or module body, or a block that opens one",
+    "module Ext\n  included do\n    define_method(:x) { 1 }\n  end\nend\n" =>
+      "it is inside `included do`, and only the code that runs the block knows which module it defines on",
+    "def self.build(name)\n  Class.new do\n    define_method(:label) { name }\n  end\nend\n" =>
+      "the block shares the local `name` with the code around it",
     "class A\n  NAMES.each { |n| define_method(n) { 1 } }\nend\n" =>
       "the loop runs over `NAMES`, which this class body does not set once before the loop",
     "class A\n  %w[a b].each { |n| define_method(:x) { n } }\nend\n" =>

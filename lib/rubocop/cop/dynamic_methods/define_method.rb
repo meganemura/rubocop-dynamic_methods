@@ -8,7 +8,8 @@ module RuboCop
       #
       # The autocorrection writes a plain `def` when the result is the same
       # method: the same name, parameters, body, and visibility. That holds
-      # for a call directly in a class or module body, or in an `each` over a
+      # for a call directly in a class or module body (or a block Ruby runs as
+      # one, such as `Class.new do`), or in an `each` over a
       # literal list there. Otherwise the offense names the reason, and the
       # method is left for a person or an agent to write.
       #

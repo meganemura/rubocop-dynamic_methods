@@ -23,7 +23,7 @@ class RewriteTest < Minitest::Test
     ["", "x = [v]\nx << v\nx"], ["", "v&.to_s"], ["", "%w[a b].map { v }"], ["", "v..v"], ["", "[v] * 2"],
     ["", "{ v => v }"], ["", "\"\#{v}\".frozen?"], ["", ":\"\#{v}\""], ["", "v; v"], ["", "v ? v : nil"],
     ["", "[v][0]"], ["", "v <=> v"], ["", "__method__"], ["", "next v if v\n:no"], ["", "@seen = v\nnil"],
-    ["", "v ** 2"], ["", "binding.local_variable_get(:v)"], ["", "super()"], ["", "yield"], ["&b", "b&.call(v)"]
+    ["", "[v, seed]"], ["", "v ** 2"], ["", "binding.local_variable_get(:v)"], ["", "super()"], ["", "yield"], ["&b", "b&.call(v)"]
   ].freeze
 
   NAMES = %w[alpha beta gamma delta ok? save!].freeze
@@ -39,6 +39,15 @@ class RewriteTest < Minitest::Test
       sampled_from([nil, true, false])
     )
   end
+
+  # The bodies a define_method can sit in: a class body, and the blocks Ruby
+  # runs as one. `seed` is a local a block body can see and a def cannot.
+  OPENERS = [
+    "class KLASS",
+    "class KLASS; end\nseed = 1\nKLASS.class_eval do",
+    "seed = 1\nKLASS = Class.new do",
+    "KLASS = Struct.new(:z) do"
+  ].freeze
 
   def outcome(&call)
     result = call.call
@@ -86,6 +95,7 @@ class RewriteTest < Minitest::Test
   def test_a_corrected_block_is_the_method_the_original_defined
     seen = Hash.new(0)
     Hegel.test(**SETTINGS) do |tc|
+      opener = tc.draw(sampled_from(OPENERS))
       value = tc.draw(values)
       params, body = TEMPLATES[tc.draw(integers(min_value: 0, max_value: TEMPLATES.size - 1))]
       frozen = tc.draw(booleans)
@@ -99,7 +109,7 @@ class RewriteTest < Minitest::Test
       source = <<~RUBY
         # frozen_string_literal: #{frozen}
 
-        class KLASS
+        #{opener}
           #{section}[#{value.inspect}].each do |v|
             define_method(:m) #{block}
           end
@@ -114,6 +124,7 @@ class RewriteTest < Minitest::Test
   def test_a_corrected_loop_defines_every_name_the_original_defined
     seen = Hash.new(0)
     Hegel.test(**SETTINGS) do |tc|
+      opener = tc.draw(sampled_from(OPENERS))
       names = tc.draw(arrays(sampled_from(NAMES), min_size: 1, max_size: 3, unique: true))
       symbols = tc.draw(booleans)
       list = symbols ? "[#{names.map { _1.to_sym.inspect }.join(", ")}]" : names.inspect
@@ -124,7 +135,7 @@ class RewriteTest < Minitest::Test
       source = <<~RUBY
         # frozen_string_literal: #{frozen}
 
-        class KLASS
+        #{opener}
           #{list}.each do |name|
             # One per name.
             #{spell}(#{name}) do |x = 1|
@@ -144,7 +155,8 @@ class RewriteTest < Minitest::Test
         original = load_class(source, "Original#{number}", root)
         written = load_class(CopRunner.run(source).source, "Written#{number}", root)
         assert_equal original.singleton_methods.sort, written.singleton_methods.sort
-        original.singleton_methods.each { |m| assert_equal outcome { original.send(m) }, outcome { written.send(m) } }
+        # A Struct class answers `inspect` and the like with its own name.
+        (original.singleton_methods - Struct.new(:z).singleton_methods).each { |m| assert_equal outcome { original.send(m) }, outcome { written.send(m) } }
       end
     end
     assert_operator seen[:corrected], :>, 50, seen.inspect
@@ -153,6 +165,7 @@ class RewriteTest < Minitest::Test
   def test_a_corrected_string_eval_defines_the_methods_the_original_defined
     seen = Hash.new(0)
     Hegel.test(**SETTINGS) do |tc|
+      opener = tc.draw(sampled_from(OPENERS))
       names = tc.draw(arrays(sampled_from(NAMES), min_size: 1, max_size: 3, unique: true))
       list = tc.draw(sampled_from(%w[symbols words constant hash]))
       section = tc.draw(sampled_from(["", "private\n  ", "public\n  "]))
@@ -165,7 +178,7 @@ class RewriteTest < Minitest::Test
       result = list == "hash" ? "\#{size}" : tc.draw(sampled_from([":\#{name}", "'\#{name}'", "%(\#{name})"]))
       frozen = tc.draw(sampled_from(["", "# frozen_string_literal: true\n", "# frozen_string_literal: false\n"]))
       source = <<~RUBY
-        #{frozen}class KLASS
+        #{frozen}#{opener}
           #{section}#{loop_head}
             class_eval <<~CODE, __FILE__, __LINE__ + 1
               def \#{name}(by = 1)

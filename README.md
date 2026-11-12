@@ -86,6 +86,8 @@ The reason is written for whoever writes the defs next, an agent or a person.
 RuboCop reads the source and never runs it, so a rewrite is possible only when the source fixes every name:
 
 - The call has no receiver, or `self`, and sits directly in a class or module body, or in an `each` over a literal Array or Hash there.
+  A block of `class_eval`, `module_eval`, `class_exec`, `module_exec`, `Class.new`, `Module.new`, `Struct.new`, or `Data.define` counts as a class body: a def there defines on the same module, with the same visibility and constants.
+  A block of any other method, such as `included do`, does not, because only the code that runs it knows where it defines.
   A constant counts as a literal list when the same body sets it once, before the loop, to a frozen literal.
 - A loop value becomes a literal only when the literal is the same object on every read: a Symbol, a small Integer, nil, true, false, or a String under `# frozen_string_literal: true`.
 - A block is refused when it shares a local with the code around it, or uses something a def treats differently: numbered parameters, `it`, `yield`, `binding`, `local_variables`, `block_given?`, `eval`, `super` with no arguments, `break` or `redo` outside a loop.

@@ -25,6 +25,9 @@ module RuboCop
       # Calls that see the locals of a block but not of a def.
       LOCAL_READERS = %i[binding local_variables block_given? iterator? eval].freeze
       VISIBILITY = %i[private protected public module_function].freeze
+      # Blocks read as a loop over values; a block of any other method is not.
+      ITERATORS = %i[each each_pair each_with_index each_with_object each_key each_value map flat_map times].freeze
+      NOT_IN_BODY = "it is not called directly in a class or module body, or a block that opens one"
       # A fixnum is the same object on every read; a larger Integer is not.
       FIXNUM = (-(2**62))...(2**62)
 
@@ -50,16 +53,19 @@ module RuboCop
 
       def plan(statement)
         container, body = enclosing(statement)
-        if SCOPES.include?(container.type)
+        if scope?(container)
           scope_body = scope_body(container)
-          outer = assigned_locals(scope_body, except: statement)
+          outer = assigned_locals(scope_body, except: statement) | visible_locals(container)
           run = {}
           text, names = write(statement, run, outer, moved: 0, scope_body:)
           Plan.new(range: full_range(statement), text:, names:)
-        elsif BLOCKS.include?(container.type) && container.body.equal?(body)
+        elsif BLOCKS.include?(container.type) && container.body.equal?(body) && ITERATORS.include?(container.method_name)
           plan_loop(container)
+        elsif BLOCKS.include?(container.type)
+          raise Refusal, "it is inside `#{container.method_name} do`, and only the code that runs the block knows " \
+                         "which module it defines on"
         else
-          raise Refusal, "it is not called directly in a class or module body"
+          raise Refusal, NOT_IN_BODY
         end
       end
 
@@ -67,7 +73,7 @@ module RuboCop
 
       def enclosing(node)
         parent = node.parent
-        raise Refusal, "it is not called directly in a class or module body" if parent.nil?
+        raise Refusal, NOT_IN_BODY if parent.nil?
         return [parent.parent, parent] if parent.begin_type? && parent.parent
 
         [parent, node]
@@ -77,9 +83,53 @@ module RuboCop
         scope.body
       end
 
+      # A class or module body, or a block that Ruby runs as one: a def and a
+      # define_method there define on the same module, with the same default
+      # visibility and the same constant lookup. `included do` and
+      # `class_methods do` are not here: what runs them is the library's.
+      def scope?(node)
+        return true if SCOPES.include?(node.type)
+        return false unless BLOCKS.include?(node.type)
+
+        send = node.send_node
+        case send.method_name
+        when :class_eval, :module_eval, :class_exec, :module_exec then true
+        when :new then core_constant?(send.receiver, %i[Class Module Struct])
+        when :define then core_constant?(send.receiver, %i[Data])
+        else false
+        end
+      end
+
+      def core_constant?(node, names)
+        node&.const_type? && (node.namespace.nil? || node.namespace.cbase_type?) && names.include?(node.short_name)
+      end
+
+      # Locals a block can read from the code around it, up to the nearest
+      # def, class, or module, which starts a scope of its own.
+      def visible_locals(scope)
+        return [] if SCOPES.include?(scope.type)
+
+        names = scope.arguments.each_descendant(:arg, :optarg, :restarg, :kwarg, :kwoptarg, :kwrestarg, :blockarg).map(&:name)
+        scope.each_ancestor do |ancestor|
+          if BLOCKS.include?(ancestor.type) && ancestor.respond_to?(:arguments)
+            names.concat(ancestor.arguments.each_descendant(:arg, :optarg, :restarg, :kwarg, :kwoptarg, :kwrestarg, :blockarg).map(&:name))
+            names.concat(assigned_locals(ancestor.body, except: scope))
+          elsif %i[def defs].include?(ancestor.type)
+            names.concat(ancestor.arguments.each_descendant(:arg, :optarg, :restarg, :kwarg, :kwoptarg, :kwrestarg, :blockarg).map(&:name))
+            names.concat(assigned_locals(ancestor.body, except: scope))
+            return names.uniq
+          elsif SCOPES.include?(ancestor.type)
+            return (names + assigned_locals(ancestor.body, except: scope)).uniq
+          elsif ancestor.parent.nil?
+            names.concat(assigned_locals(ancestor, except: scope))
+          end
+        end
+        names.uniq
+      end
+
       def plan_loop(loop)
         scope, = enclosing(loop)
-        raise Refusal, "the loop is not called directly in a class or module body" unless SCOPES.include?(scope.type)
+        raise Refusal, "the loop is not called directly in a class or module body, or a block that opens one" unless scope?(scope)
 
         scope_body = scope.body
         runs = runs_of(loop, scope_body)
@@ -88,7 +138,7 @@ module RuboCop
           raise Refusal, "the loop does more than define methods"
         end
 
-        outer = assigned_locals(scope_body, except: loop) | loop.arguments.children.map(&:name)
+        outer = assigned_locals(scope_body, except: loop) | loop.arguments.children.map(&:name) | visible_locals(scope)
         indent = " " * loop.loc.column
         names = []
         texts = runs.flat_map do |run|
@@ -236,10 +286,10 @@ module RuboCop
         indent = " " * column
         # A one-line block becomes a def of three lines, the shape a reader
         # expects; the body moves to its own line.
-        return ["#{header}\n#{indent}#{body.strip.empty? ? "" : "  #{body.strip}\n#{indent}"}end", [name]] if block.single_line?
+        return ["#{header}\n#{indent}#{body.strip.empty? ? "" : "  #{body.strip}\n#{indent}"}end", ["#{prefix}#{name}"]] if block.single_line?
 
         body = ";#{body}" unless body.match?(/\A[ \t]*(#|\n|\z)/)
-        [reindent("#{header}#{body}end", moved), [name]]
+        [reindent("#{header}#{body}end", moved), ["#{prefix}#{name}"]]
       end
 
       # Edits inside a block: loop variables become their literal, and a `next`
