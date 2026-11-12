@@ -89,6 +89,9 @@ RuboCop reads the source and never runs it, so a rewrite is possible only when t
   A block of `class_eval`, `module_eval`, `class_exec`, `module_exec`, `Class.new`, `Module.new`, `Struct.new`, or `Data.define` counts as a class body: a def there defines on the same module, with the same visibility and constants.
   A block of any other method, such as `included do`, does not, because only the code that runs it knows where it defines.
   A constant counts as a literal list when the same body sets it once, before the loop, to a frozen literal.
+- The other calls in such a loop, such as `alias_method`, `attr_reader`, `private`, or `ruby2_keywords`, are copied once per value, after the def they follow.
+  A name built from the loop variable becomes a Symbol, as in `alias_method :refute_text, :assert_text`.
+  The loop is refused when it assigns a local, calls a bare `private`, or uses `next`, `break`, or `return`, because a block and a class body treat those differently.
 - A loop value becomes a literal only when the literal is the same object on every read: a Symbol, a small Integer, nil, true, false, or a String under `# frozen_string_literal: true`.
 - A block is refused when it shares a local with the code around it, or uses something a def treats differently: numbered parameters, `it`, `yield`, `binding`, `local_variables`, `block_given?`, `eval`, `super` with no arguments, `break` or `redo` outside a loop.
   A `next` that leaves the method becomes `return`.

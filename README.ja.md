@@ -95,6 +95,10 @@ RuboCop はソースを読むだけで実行しません。
   どこに定義されるかは、そのブロックを実行するコードにしか分からないからです。
   または、そこにあるリテラルの Array か Hash に対する `each` の中にあること。
   定数は、同じ本体の中でループより前に一度だけ、freeze したリテラルを入れていればリテラルとして扱います。
+- そのループの中の他の呼び出し(`alias_method`、`attr_reader`、`private`、`ruby2_keywords` など)は、値ごとに、前の def のあとへ写します。
+  ループ変数から作った名前は、`alias_method :refute_text, :assert_text` のように Symbol にします。
+  ループがローカル変数に代入するとき、引数なしの `private` を呼ぶとき、`next`、`break`、`return` を使うときは書き直しません。
+  ブロックとクラスの本体では、これらの意味が違うからです。
 - ループの値をリテラルに置き換えるのは、読むたびに同じオブジェクトになるときだけです。
   Symbol、小さい Integer、nil、true、false、そして `# frozen_string_literal: true` のもとでの String です。
 - ブロックが外側のローカル変数を共有しているときは書き直しません。

@@ -62,8 +62,12 @@ class RewriteTest < Minitest::Test
   def load_class(source, name, root)
     file = File.join(root, "#{name}.rb")
     File.write(file, source.gsub("KLASS", name))
+    # The classes are generated; their warnings are noise.
+    verbose, $VERBOSE = $VERBOSE, nil
     load file
     Object.const_get(name)
+  ensure
+    $VERBOSE = verbose
   end
 
   def compare(original, written)
@@ -158,6 +162,42 @@ class RewriteTest < Minitest::Test
         # A Struct class answers `inspect` and the like with its own name.
         (original.singleton_methods - Struct.new(:z).singleton_methods).each { |m| assert_equal outcome { original.send(m) }, outcome { written.send(m) } }
       end
+    end
+    assert_operator seen[:corrected], :>, 50, seen.inspect
+  end
+
+  # Calls a loop makes next to define_method, each copied once per run.
+  EXTRAS = [
+    'alias_method :"#{name}_alias", name',
+    'alias_method "old_#{name}", "#{name}"',
+    'attr_accessor :"#{name.to_s.delete("?!")}_attr"',
+    "private name",
+    'protected "#{name}"',
+    "public(name)",
+    "ruby2_keywords(name) if respond_to?(:ruby2_keywords, true)",
+    'module_function name if false'
+  ].freeze
+
+  def test_a_corrected_loop_makes_the_calls_the_original_made
+    seen = Hash.new(0)
+    Hegel.test(**SETTINGS) do |tc|
+      opener = tc.draw(sampled_from(OPENERS))
+      names = tc.draw(arrays(sampled_from(NAMES), min_size: 1, max_size: 3, unique: true))
+      list = tc.draw(booleans) ? "[#{names.map { _1.to_sym.inspect }.join(", ")}]" : names.inspect
+      frozen = tc.draw(booleans)
+      extras = tc.draw(arrays(sampled_from(EXTRAS), min_size: 1, max_size: 3))
+      source = <<~RUBY
+        # frozen_string_literal: #{frozen}
+
+        #{opener}
+          #{list}.each do |name|
+            define_method(name) { |x = 1| [name, x] }
+            #{extras.join("\n    ")}
+          end
+        end
+      RUBY
+      tc.note(source)
+      seen[check(source)] += 1
     end
     assert_operator seen[:corrected], :>, 50, seen.inspect
   end

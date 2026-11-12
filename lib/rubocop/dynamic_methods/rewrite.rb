@@ -27,6 +27,12 @@ module RuboCop
       VISIBILITY = %i[private protected public module_function].freeze
       # Blocks read as a loop over values; a block of any other method is not.
       ITERATORS = %i[each each_pair each_with_index each_with_object each_key each_value map flat_map times].freeze
+      # Methods that take method names and read a String as its Symbol.
+      NAME_TAKERS = %i[alias_method attr_reader attr_writer attr_accessor private public protected module_function
+                       private_class_method public_class_method ruby2_keywords undef_method remove_method].freeze
+      # Of those, the ones that answer the same for a String and its Symbol:
+      # attr_* answer Symbols, and alias_method the new name's Symbol.
+      SAME_RESULT = %i[alias_method attr_reader attr_writer attr_accessor].freeze
       NOT_IN_BODY = "it is not called directly in a class or module body, or a block that opens one"
       # A fixnum is the same object on every read; a larger Integer is not.
       FIXNUM = (-(2**62))...(2**62)
@@ -134,26 +140,118 @@ module RuboCop
         scope_body = scope.body
         runs = runs_of(loop, scope_body)
         statements = loop.body.begin_type? ? loop.body.children : [loop.body]
-        unless statements.all? { self.class.statement?(_1) }
-          raise Refusal, "the loop does more than define methods"
-        end
 
         outer = assigned_locals(scope_body, except: loop) | loop.arguments.children.map(&:name) | visible_locals(scope)
         indent = " " * loop.loc.column
         names = []
-        texts = runs.flat_map do |run|
+        # [text, whether it defines] for each statement of each run.
+        pieces = runs.flat_map do |run|
           statements.map do |statement|
             if statement.first_line == loop.first_line && statement.multiline?
               raise Refusal, "the loop starts a definition on its own line"
             end
 
-            text, defined = write(statement, run, outer, moved: statement.loc.column - loop.loc.column, scope_body:, loop:)
+            moved = statement.loc.column - loop.loc.column
+            next [copy(statement, run, moved:, loop:), false] unless self.class.statement?(statement)
+
+            text, defined = write(statement, run, outer, moved:, scope_body:, loop:)
             names.concat(defined)
-            text
+            [text, true]
           end
         end
+        # A blank line sets each def apart; calls such as `alias_method` that
+        # follow one another stay together.
+        text = pieces.each_cons(2).map { |(_, a), (b_text, b)| (a || b ? "\n\n" : "\n") + indent + b_text }
+        text = pieces.first.first + text.join
         notes = loose_comments(loop, statements).map { "#{_1}\n#{indent}" }.join
-        Plan.new(range: full_range(loop), text: notes + texts.join("\n\n#{indent}"), names:)
+        Plan.new(range: full_range(loop), text: notes + text, names:)
+      end
+
+      # A statement of the loop that defines nothing, such as `alias_method` or
+      # `private`, copied once per run with the loop variables written as
+      # their literals. It moves from the block into the class body, so
+      # anything that tells the two apart is refused.
+      def copy(statement, run, moved:, loop:)
+        edits = []
+        walk = lambda do |node|
+          next unless node.is_a?(RuboCop::AST::Node)
+
+          done = copy_edits(node, statement, run, loop, edits)
+          check_moved_node(node)
+          node.children.each { walk.call(_1) unless done.include?(_1) }
+        end
+        walk.call(statement)
+        range = full_range(statement)
+        reindent(slice(range.begin_pos, range.end_pos, edits), moved)
+      end
+
+      # Adds the edits for one node, and returns the children it wrote whole.
+      def copy_edits(node, statement, run, loop, edits)
+        case node.type
+        when :lvar
+          edits << loop_read(node, run.fetch(node.children.first)) if run.key?(node.children.first)
+        when :lvasgn
+          raise Refusal, "the loop assigns the local `#{node.children.first}`, which each run of the loop starts afresh"
+        when :arg, :optarg, :restarg, :kwarg, :kwoptarg, :kwrestarg, :blockarg, :shadowarg
+          raise Refusal, "a block in the loop reuses the loop's name `#{node.name}`" if run.key?(node.name)
+        when :def, :defs
+          raise Refusal, "the loop holds a def, which cannot see the loop variable"
+        when :class, :module, :sclass
+          raise Refusal, "the loop opens a class or module, which cannot see the loop variable"
+        when :casgn
+          raise Refusal, "the loop assigns a constant"
+        when :next, :break, :redo, :return
+          raise Refusal, "the loop uses `#{node.type}`" if own_level?(node, loop)
+        when :send
+          return copy_send(node, statement, run, edits)
+        end
+        []
+      end
+
+      def copy_send(send, statement, run, edits)
+        return [] unless self.class.implicit?(send)
+
+        name = send.method_name
+        raise Refusal, "the loop calls `#{name}`, which sees the loop's locals" if LOCAL_READERS.include?(name)
+        if VISIBILITY.include?(name) && !send.arguments?
+          raise Refusal, "the loop calls a bare `#{name}`, which a block and a class body scope differently"
+        end
+        if (SPELLS + EVALS).include?(name)
+          raise Refusal, "the loop calls `#{name}` inside `#{statement.source.lines.first.strip}`"
+        end
+        return [] unless NAME_TAKERS.include?(name) && (SAME_RESULT.include?(name) || discarded?(send, statement))
+
+        # `alias_method "#{name}?", name` reads better as `alias_method :alpha?, :alpha`.
+        send.arguments.select do |argument|
+          symbol = folded_name(argument, run)
+          edits << [argument.source_range, symbol.inspect] if symbol
+        end
+      end
+
+      # A call whose value nothing reads: the statement, or a branch of an
+      # `if` that is the statement.
+      def discarded?(send, statement)
+        return true if send.equal?(statement)
+
+        parent = send.parent
+        parent.equal?(statement) && parent.if_type? && !send.equal?(parent.condition)
+      end
+
+      # The Symbol a name argument comes to, when it is built from the loop
+      # variables alone; nil otherwise.
+      def folded_name(node, run)
+        case node.type
+        when :lvar
+          value = run[node.children.first]&.object
+          value.to_sym if value.is_a?(String) || value.is_a?(Symbol)
+        when :dsym, :dstr
+          return if node.respond_to?(:heredoc?) && node.heredoc?
+          return unless node.each_descendant(:lvar).any? { run.key?(_1.children.first) }
+
+          name_of(node, run).to_sym
+        end
+      rescue Refusal
+        nil
       end
 
       # Each run of the loop as variable name => Value.

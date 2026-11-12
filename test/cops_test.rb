@@ -127,6 +127,35 @@ class CopsTest < Minitest::Test
     assert_equal "class Config\n  def self.load(path)\n    new(path)\n  end\nend\n", CopRunner.run(source).source
   end
 
+  def test_a_loop_that_also_calls_alias_method_and_private_is_unrolled
+    source = <<~'RUBY'
+      class Matchers
+        %i[equal match].each do |kind|
+          define_method("assert_#{kind}") { |x| [kind, x] }
+          alias_method "refute_#{kind}", "assert_#{kind}"
+          private kind
+        end
+      end
+    RUBY
+    assert_equal <<~'RUBY', CopRunner.run(source).source
+      class Matchers
+        def assert_equal(x)
+          [:equal, x]
+        end
+
+        alias_method :refute_equal, :assert_equal
+        private :equal
+
+        def assert_match(x)
+          [:match, x]
+        end
+
+        alias_method :refute_match, :assert_match
+        private :match
+      end
+    RUBY
+  end
+
   REFUSALS = {
     "class A\n  x = 1\n  define_method(:a) { x }\nend\n" =>
       "the block shares the local `x` with the code around it",
@@ -152,8 +181,12 @@ class CopsTest < Minitest::Test
       "the block reads the string \"a\", which is one shared object only under `# frozen_string_literal: true`",
     "class A\n  [1.5].each { |n| define_method(:x) { n } }\nend\n" =>
       "the list holds `1.5`, which is not a symbol, string, small integer, nil, true, or false",
-    "class A\n  %i[a].each do |n|\n    attr_reader n\n    define_method(n) { 1 }\n  end\nend\n" =>
-      "the loop does more than define methods",
+    "class A\n  %i[a].each do |n|\n    x = n\n    define_method(n) { 1 }\n  end\nend\n" =>
+      "the loop assigns the local `x`, which each run of the loop starts afresh",
+    "class A\n  %i[a].each do |n|\n    private\n    define_method(n) { 1 }\n  end\nend\n" =>
+      "the loop calls a bare `private`, which a block and a class body scope differently",
+    "class A\n  %i[a].each do |n|\n    define_method(n) { 1 }\n    next if n == :a\n  end\nend\n" =>
+      "the loop uses `next`",
     "class A\n  define_method(:\"two words\") { 1 }\nend\n" =>
       "`two words` cannot be written after `def`",
     "class A\n  private\n\n  class_eval \"def a; end\"\nend\n" =>
