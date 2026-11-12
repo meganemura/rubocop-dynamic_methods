@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - queue
+  pull_request:
+  # release.yml runs the same jobs on the commit it releases.
+  workflow_call:
+
+permissions:
+  contents: read
+
+# Actions are pinned to a commit. A tag can be moved to another commit.
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        ruby: [ "3.4", "4.0" ]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: true
+      - run: bundle exec bin/test
+
+  # hegeltest needs Ruby 3.4, so the oldest supported Ruby runs the example
+  # tests only.
+  oldest:
+    runs-on: ubuntu-latest
+    env:
+      BUNDLE_WITHOUT: hegel
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: "3.2"
+          bundler-cache: true
+      - run: bundle exec bin/test test/cops_test.rb

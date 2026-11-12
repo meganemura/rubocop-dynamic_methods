@@ -1,0 +1,10 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Runs the Minitest files given, or every one under test/. Other arguments go
+# to Minitest, which reads ARGV at exit.
+$LOAD_PATH.unshift File.expand_path("../lib", __dir__), File.expand_path("../test", __dir__)
+files, options = ARGV.partition { _1.end_with?(".rb") }
+ARGV.replace(options)
+files = Dir[File.expand_path("../test/**/*_test.rb", __dir__)] if files.empty?
+files.each { require File.expand_path(_1) }

@@ -1,0 +1,19 @@
+DynamicMethods:
+  DocumentationBaseURL: https://github.com/meganemura/rubocop-dynamic_methods/blob/main/README.md
+
+DynamicMethods/DefineMethod:
+  Description: Define methods with `def` instead of `define_method`, so a search for `def name` finds them.
+  Enabled: true
+  SafeAutoCorrect: false
+  VersionAdded: '0.1'
+
+DynamicMethods/StringEval:
+  Description: Write the defs a string eval holds as code, so a search for `def name` finds them.
+  Enabled: true
+  SafeAutoCorrect: false
+  VersionAdded: '0.1'
+
+DynamicMethods/MethodMissing:
+  Description: Define the methods `method_missing` answers with `def`.
+  Enabled: true
+  VersionAdded: '0.1'

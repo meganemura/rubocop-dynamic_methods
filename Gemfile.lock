@@ -1,0 +1,86 @@
+PATH
+  remote: .
+  specs:
+    rubocop-dynamic_methods (0.1.0)
+      lint_roller (~> 1.1)
+      rubocop (>= 1.72.0, < 2)
+
+GEM
+  remote: https://rubygems.org/
+  specs:
+    ast (2.4.3)
+    drb (2.2.3)
+    ffi (1.17.4)
+    ffi (1.17.4-aarch64-linux-gnu)
+    ffi (1.17.4-aarch64-linux-musl)
+    ffi (1.17.4-arm-linux-gnu)
+    ffi (1.17.4-arm-linux-musl)
+    ffi (1.17.4-arm64-darwin)
+    ffi (1.17.4-x86-linux-gnu)
+    ffi (1.17.4-x86-linux-musl)
+    ffi (1.17.4-x86_64-darwin)
+    ffi (1.17.4-x86_64-linux-gnu)
+    ffi (1.17.4-x86_64-linux-musl)
+    hegeltest (0.4.1)
+      ffi (~> 1.17, >= 1.17.4)
+    hegeltest (0.4.1-aarch64-linux)
+      ffi (~> 1.17, >= 1.17.4)
+    hegeltest (0.4.1-arm64-darwin)
+      ffi (~> 1.17, >= 1.17.4)
+    hegeltest (0.4.1-x86_64-linux)
+      ffi (~> 1.17, >= 1.17.4)
+    json (3.1.0)
+    language_server-protocol (3.17.0.6)
+    lint_roller (1.1.0)
+    minitest (6.0.6)
+      drb (~> 2.0)
+      prism (~> 1.5)
+    parallel (1.28.0)
+    parser (3.3.13.0)
+      ast (~> 2.4.1)
+      racc
+    prism (1.9.0)
+    racc (1.8.1)
+    rainbow (3.1.1)
+    regexp_parser (2.13.1)
+    rubocop (1.92.2)
+      json (>= 2.3)
+      language_server-protocol (~> 3.17.0.2)
+      lint_roller (~> 1.1.0)
+      parallel (>= 1.10)
+      parser (>= 3.3.0.2)
+      rainbow (>= 2.2.2, < 4.0)
+      regexp_parser (>= 2.11.3, < 3.0)
+      rubocop-ast (>= 1.49.0, < 2.0)
+      ruby-progressbar (~> 1.7)
+      unicode-display_width (>= 2.4.0, < 4.0)
+    rubocop-ast (1.51.0)
+      parser (>= 3.3.7.2)
+      prism (>= 1.7)
+    ruby-progressbar (1.13.0)
+    unicode-display_width (3.3.0)
+      unicode-emoji (~> 4.3)
+    unicode-emoji (4.3.0)
+
+PLATFORMS
+  aarch64-linux
+  aarch64-linux-gnu
+  aarch64-linux-musl
+  arm-linux-gnu
+  arm-linux-musl
+  arm64-darwin
+  ruby
+  x86-linux-gnu
+  x86-linux-musl
+  x86_64-darwin
+  x86_64-linux-gnu
+  x86_64-linux-musl
+
+DEPENDENCIES
+  hegeltest (= 0.4.1)
+  minitest (= 6.0.6)
+  rubocop (= 1.92.2)
+  rubocop-dynamic_methods!
+
+BUNDLED WITH
+   2.6.9

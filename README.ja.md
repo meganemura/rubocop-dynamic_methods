@@ -1,0 +1,119 @@
+# rubocop-dynamic_methods
+
+Ruby のメタプログラミングで定義されたメソッドを見つける RuboCop の cop です。
+`paid?` が `define_method` や文字列 eval で作られていると、`def paid?` を検索しても何も見つかりません。
+読み手はまずコーディングエージェント、次に人です。
+この cop はそうしたメソッドを見つけ、ふつうの `def` に書き直します。
+
+```ruby
+# frozen_string_literal: true
+
+class Order
+  STATES = %i[draft paid].freeze
+
+  STATES.each do |state|
+    define_method(:"#{state}?") { @state == state }
+  end
+end
+```
+
+```sh
+$ rubocop -A --only DynamicMethods order.rb
+order.rb:7:5: C: [Corrected] DynamicMethods/DefineMethod: Define draft?, paid? with def, so a search for def name finds them.
+```
+
+```ruby
+# frozen_string_literal: true
+
+class Order
+  STATES = %i[draft paid].freeze
+
+  def draft?
+    @state == :draft
+  end
+
+  def paid?
+    @state == :paid
+  end
+end
+```
+
+## はじめかた
+
+```ruby
+# Gemfile
+gem "rubocop-dynamic_methods", require: false
+```
+
+```yaml
+# .rubocop.yml
+plugins:
+  - rubocop-dynamic_methods
+```
+
+RuboCop 1.72 以降と Ruby 3.2 以降で動きます。
+
+## cop の一覧
+
+| cop | 見つけるもの | 自動修正 |
+| --- | --- | --- |
+| `DynamicMethods/DefineMethod` | `define_method` と `define_singleton_method` | `def name` と `def self.name` に書き直す |
+| `DynamicMethods/StringEval` | 文字列を渡した `class_eval`、`module_eval`、`instance_eval`、`eval` | 文字列の中の def に書き直す |
+| `DynamicMethods/MethodMissing` | `def method_missing` | しない |
+
+## 同じになるときだけ直す
+
+自動修正は、Ruby が同じメソッドを定義するときだけ def を書きます。
+同じとは、名前、引数、本体、公開範囲が同じことです。
+確かめられないときは、理由を書いた警告だけを出し、コードはそのままにします。
+
+```ruby
+class Feed
+  ELEMENTS = %w[title link]
+
+  ELEMENTS.each do |name|
+    class_eval <<~RUBY, __FILE__, __LINE__ + 1
+      def #{name} = @values[:#{name}]
+    RUBY
+  end
+end
+```
+
+```text
+feed.rb:5:5: C: DynamicMethods/StringEval: Define this method with def, so a search for its name finds it. Not autocorrected: ELEMENTS is not a frozen literal list.
+```
+
+理由は、次に def を書く人やエージェントに向けて書いています。
+
+RuboCop はソースを読むだけで実行しません。
+そのため、ソースだけで名前がすべて決まるときにだけ書き直せます。
+
+- 呼び出しがレシーバーなしか `self` で、クラスやモジュールの本体に直接あること。
+  または、そこにあるリテラルの Array か Hash に対する `each` の中にあること。
+  定数は、同じ本体の中でループより前に一度だけ、freeze したリテラルを入れていればリテラルとして扱います。
+- ループの値をリテラルに置き換えるのは、読むたびに同じオブジェクトになるときだけです。
+  Symbol、小さい Integer、nil、true、false、そして `# frozen_string_literal: true` のもとでの String です。
+- ブロックが外側のローカル変数を共有しているときは書き直しません。
+  def では意味が変わるものを使っているときも書き直しません。
+  番号付きパラメーター、`it`、`yield`、`binding`、`local_variables`、`block_given?`、`eval`、引数なしの `super`、ループの外の `break` と `redo` です。
+  メソッドを抜ける `next` は `return` に書き直します。
+- 引数なしの `private`、`protected`、`module_function` のあとにある文字列 eval は書き直しません。
+  文字列 eval で作った def は、そこでも public になるからです。
+  文字列に def 以外のものがあるときも書き直しません。
+
+自動修正は RuboCop でいう unsafe です。
+`define_method`、`class_eval`、`Array#each` が Ruby 本来のものだと仮定しているからです。
+`rubocop -A` で実行してください。
+
+決まりの全体は [docs/decisions/0001-exact-or-refused.md](docs/decisions/0001-exact-or-refused.md) にあります。
+
+## 書き直しの確かめ方
+
+`test/hegel/rewrite_test.rb` は hegeltest でクラスを作り、cop で直し、元のクラスと直したクラスを両方読み込みます。
+そして Ruby が答える内容を比べます。
+公開範囲ごとのメソッド名、引数、戻り値、呼び出しで設定されるインスタンス変数です。
+
+## ライセンス
+
+MIT です。
+[LICENSE](LICENSE) を見てください。
