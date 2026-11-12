@@ -60,6 +60,12 @@ RuboCop 1.72 以降と Ruby 3.2 以降で動きます。
 | `DynamicMethods/DefineMethod` | `define_method` と `define_singleton_method` | `def name` と `def self.name` に書き直す |
 | `DynamicMethods/StringEval` | 文字列を渡した `class_eval`、`module_eval`、`instance_eval`、`eval` | 文字列の中の def に書き直す |
 | `DynamicMethods/MethodMissing` | `def method_missing` | しない |
+| `DynamicMethods/Delegation`(初期値は無効) | `delegate`、`delegate_missing_to`、`def_delegator`、`def_delegators` | しない |
+
+`DynamicMethods/Delegation` は警告を出すだけです。
+委譲はよく使われる書き方で、def にすると同じメソッドにならないからです。
+Forwardable は private メソッドも呼べますし、どちらもどんな引数でも受け取ります。
+使うときは、`.rubocop.yml` の `DynamicMethods/Delegation` に `Enabled: true` を書きます。
 
 ## 同じになるときだけ直す
 

@@ -59,6 +59,10 @@ The plugin needs RuboCop 1.72 or later and Ruby 3.2 or later.
 | `DynamicMethods/DefineMethod` | `define_method` and `define_singleton_method` | to `def name` and `def self.name` |
 | `DynamicMethods/StringEval` | `class_eval`, `module_eval`, `instance_eval`, and `eval` with a string | to the defs the string holds |
 | `DynamicMethods/MethodMissing` | `def method_missing` | no |
+| `DynamicMethods/Delegation` (disabled by default) | `delegate`, `delegate_missing_to`, `def_delegator`, `def_delegators` | no |
+
+`DynamicMethods/Delegation` only reports: delegation is common style, and a def is not the same method, because Forwardable reaches private methods and both take any arguments.
+Turn it on with `Enabled: true` under `DynamicMethods/Delegation` in `.rubocop.yml`.
 
 ## Exact or not at all
 

@@ -17,3 +17,8 @@ DynamicMethods/MethodMissing:
   Description: Define the methods `method_missing` answers with `def`.
   Enabled: true
   VersionAdded: '0.1'
+
+DynamicMethods/Delegation:
+  Description: Report the methods `delegate` and Forwardable define, which a search for `def name` does not find.
+  Enabled: false
+  VersionAdded: '0.1'
