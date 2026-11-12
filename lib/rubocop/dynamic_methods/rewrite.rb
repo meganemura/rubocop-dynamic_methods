@@ -376,7 +376,35 @@ module RuboCop
         top = parsed.ast.begin_type? ? parsed.ast.children : [parsed.ast]
         raise Refusal, "the string does more than define methods" unless top.all? { %i[def defs].include?(_1.type) }
 
+        check_string_literals(parsed)
         top.map { _1.defs_type? ? "self.#{_1.method_name}" : _1.method_name.to_s }
+      end
+
+      # The file's `# frozen_string_literal:` comment does not reach code a
+      # string eval compiles, so a string literal there is frozen or not by
+      # its own comment. Moved into the file, it would take the file's.
+      def check_string_literals(parsed)
+        return if self.class.frozen_setting(parsed) == self.class.frozen_setting(@source)
+
+        literal = parsed.ast.each_node(:str, :dstr).find do |node|
+          next false if %i[dstr dsym xstr regexp].include?(node.parent&.type)
+
+          node.str_type? || node.children.all?(&:str_type?)
+        end
+        return unless literal
+
+        raise Refusal, "the string's code holds the string literal #{literal.source}, " \
+                       "which `# frozen_string_literal:` would treat differently in this file"
+      end
+
+      # true, false, or nil when the source has no magic comment.
+      def self.frozen_setting(processed_source)
+        first_code = processed_source.tokens.find { !_1.comment? }&.line || Float::INFINITY
+        processed_source.comments.take_while { _1.loc.line < first_code }.each do |comment|
+          magic = RuboCop::MagicComment.parse(comment.text)
+          return magic.frozen_string_literal if magic.frozen_string_literal_specified?
+        end
+        nil
       end
 
       def name_of(node, run)

@@ -91,7 +91,7 @@ RuboCop reads the source and never runs it, so a rewrite is possible only when t
 - A block is refused when it shares a local with the code around it, or uses something a def treats differently: numbered parameters, `it`, `yield`, `binding`, `local_variables`, `block_given?`, `eval`, `super` with no arguments, `break` or `redo` outside a loop.
   A `next` that leaves the method becomes `return`.
 - A string eval is refused after a bare `private`, `protected`, or `module_function`, because the defs it makes are public even there.
-  It is also refused when the string holds more than defs.
+  It is also refused when the string holds more than defs, or holds a string literal that the file's `# frozen_string_literal:` comment would freeze or unfreeze: that comment does not reach code a string eval compiles.
 
 The autocorrection is unsafe in RuboCop's sense: it trusts that `define_method`, `class_eval`, and `Array#each` are Ruby's own. Run it with `rubocop -A`.
 

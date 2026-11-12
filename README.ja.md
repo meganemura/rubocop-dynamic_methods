@@ -100,6 +100,8 @@ RuboCop はソースを読むだけで実行しません。
 - 引数なしの `private`、`protected`、`module_function` のあとにある文字列 eval は書き直しません。
   文字列 eval で作った def は、そこでも public になるからです。
   文字列に def 以外のものがあるときも書き直しません。
+  文字列の中のコードに文字列リテラルがあり、ファイルの `# frozen_string_literal:` で freeze するかどうかが変わるときも書き直しません。
+  このマジックコメントは、文字列 eval でコンパイルするコードには効かないからです。
 
 自動修正は RuboCop でいう unsafe です。
 `define_method`、`class_eval`、`Array#each` が Ruby 本来のものだと仮定しているからです。

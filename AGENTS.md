@@ -35,4 +35,5 @@ Do not reference private tools, private repositories, or internal working docume
 
 - `bundle exec bin/test` runs every test. `bundle exec bin/test test/cops_test.rb` runs one file.
 - `BUNDLE_WITHOUT=hegel bundle exec bin/test test/cops_test.rb` runs on Ruby older than 3.4, which hegeltest needs.
+- `bin/check-corpus ROOT` runs `rubocop -A` on a copy of ROOT, a folder of unpacked gems each with a `lib/`, and fails when a corrected file does not parse, lacks a def the cops named, or changes on a second run. It never loads the gems. Run it after a change to `rewrite.rb`.
 - To try the cops on real code, write a `.rubocop.yml` with `plugins: [rubocop-dynamic_methods]` in a scratch directory and run `BUNDLE_GEMFILE=<this checkout>/Gemfile bundle exec rubocop --only DynamicMethods` there.

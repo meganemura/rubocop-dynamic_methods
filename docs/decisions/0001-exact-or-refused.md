@@ -14,6 +14,7 @@ The autocorrection writes defs only when Ruby would define the same methods: the
 - A loop value is written as a literal only when the literal is the same object on every read: a Symbol, an Integer of fixnum size, nil, true, false, or a String under `# frozen_string_literal: true`.
 - A block is refused when it shares a local with the code around it, uses numbered parameters or `it`, `yield`, `binding`, `local_variables`, `block_given?`, `eval`, `super` with no arguments, `break` or `redo` outside a loop, or `defined?` of the loop variable, assigns a constant, or opens a class or module. A `next` that leaves the method becomes `return`.
 - A string eval is refused after a bare `private`, `protected`, or `module_function`, because its defs are public there. It is refused when the string holds more than defs, or names the eval with `__LINE__`, `__FILE__`, `__dir__`, or `Module.nesting`.
+- A string eval is refused when its code holds a string literal and its own `# frozen_string_literal:` setting differs from the file's: the file's comment does not reach eval'd code, so the literal would change from mutable to frozen.
 - Code that moves is refused when it reads `__LINE__` or holds a string that spans lines.
 
 The autocorrection is marked unsafe: it trusts that `define_method`, `class_eval`, and `Array#each` are Ruby's own.

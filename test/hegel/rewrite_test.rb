@@ -42,7 +42,8 @@ class RewriteTest < Minitest::Test
 
   def outcome(&call)
     result = call.call
-    [:ok, result.class, result.inspect]
+    # frozen? too: a literal moved between files can change it.
+    [:ok, result.class, result.inspect, result.frozen?, result.is_a?(Array) && result.map(&:frozen?)]
   rescue Exception => e # rubocop:disable Lint/RescueException
     [:raise, e.class]
   end
@@ -161,9 +162,10 @@ class RewriteTest < Minitest::Test
                   when "constant" then "NAMES = #{names.map(&:to_sym).inspect}.freeze\n  NAMES.each do |name|"
                   when "hash" then "{ #{names.map { "#{_1.to_sym.inspect} => #{_1.size}" }.join(", ")} }.each do |name, size|"
                   end
-      result = list == "hash" ? "\#{size}" : ":\#{name}"
+      result = list == "hash" ? "\#{size}" : tc.draw(sampled_from([":\#{name}", "'\#{name}'", "%(\#{name})"]))
+      frozen = tc.draw(sampled_from(["", "# frozen_string_literal: true\n", "# frozen_string_literal: false\n"]))
       source = <<~RUBY
-        class KLASS
+        #{frozen}class KLASS
           #{section}#{loop_head}
             class_eval <<~CODE, __FILE__, __LINE__ + 1
               def \#{name}(by = 1)

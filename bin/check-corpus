@@ -1,0 +1,87 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Checks the autocorrection on real code without running it. ROOT holds
+# unpacked gems, each with a lib/ directory. The script copies ROOT, runs
+# `rubocop -A --only DynamicMethods` on the copy, and checks each file the
+# cops changed:
+#
+# - the file still parses;
+# - the file defines, with `def`, every name the cops said they would write;
+# - a second run changes nothing.
+#
+# It never loads the gems: their code is not ours to run. That the corrected
+# methods behave as the originals is checked on generated classes, in
+# test/hegel/rewrite_test.rb.
+#
+#   bin/check-corpus ROOT
+require "fileutils"
+require "json"
+require "open3"
+require "prism"
+require "tmpdir"
+
+ROOT = File.expand_path(ARGV.fetch(0) { abort "usage: bin/check-corpus ROOT" })
+CHECKOUT = File.expand_path("..", __dir__)
+
+def rubocop(dir, *args)
+  libs = Dir.glob("*/lib", base: dir)
+  out, = Open3.capture2({ "BUNDLE_GEMFILE" => File.join(CHECKOUT, "Gemfile") },
+                        "bundle", "exec", "rubocop", "--cache", "false", "--only", "DynamicMethods",
+                        "--format", "json", *args, *libs, chdir: dir, err: File::NULL)
+  JSON.parse(out)
+end
+
+def defined_names(source)
+  names = []
+  stack = [Prism.parse(source).value]
+  while (node = stack.pop)
+    if node.is_a?(Prism::DefNode)
+      names << (node.receiver ? "self.#{node.name}" : node.name.to_s)
+    end
+    stack.concat(node.compact_child_nodes)
+  end
+  names
+end
+
+Dir.mktmpdir do |tmp|
+  corrected = File.join(tmp, "corpus")
+  FileUtils.cp_r(ROOT, corrected)
+  Dir[File.join(corrected, "*", ".rubocop*.yml")].each { FileUtils.rm_f(_1) }
+  File.write(File.join(corrected, ".rubocop.yml"), <<~YAML)
+    plugins:
+      - rubocop-dynamic_methods
+    AllCops:
+      NewCops: disable
+      TargetRubyVersion: 3.4
+  YAML
+
+  first = rubocop(corrected, "-A")
+  promised = Hash.new { |h, k| h[k] = [] }
+  first["files"].each do |file|
+    file["offenses"].select { _1["corrected"] }.each do |offense|
+      offense["message"].delete("`").scan(/Define (.*?) with def/).flatten.first.to_s.split(/, | and /).each do |name|
+        promised[file["path"]] << name unless name.match?(/\A\d+ more\z/)
+      end
+    end
+  end
+
+  failures = []
+  promised.each do |path, names|
+    source = File.read(File.join(corrected, path))
+    unless Prism.parse(source).success?
+      failures << "#{path}: the corrected file does not parse"
+      next
+    end
+    missing = names - defined_names(source)
+    failures << "#{path}: no def for #{missing.join(", ")}" unless missing.empty?
+  end
+  again = rubocop(corrected, "-A")["files"].sum { |f| f["offenses"].count { _1["corrected"] } }
+  failures << "a second run corrected #{again} more offenses" unless again.zero?
+
+  corrected_count = first["files"].sum { |f| f["offenses"].count { _1["corrected"] } }
+  total = first["summary"]["offense_count"]
+  puts "offenses: #{total}, corrected: #{corrected_count}, files changed: #{promised.size}, failures: #{failures.size}"
+  puts failures
+  exit(failures.empty? ? 0 : 1)
+end

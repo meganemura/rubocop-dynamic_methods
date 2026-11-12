@@ -127,6 +127,8 @@ class CopsTest < Minitest::Test
       "the string does more than define methods",
     "class A\n  class_eval \"def a = __LINE__\"\nend\n" =>
       "the string reads `__LINE__`, `__FILE__`, `__dir__`, or `Module.nesting`, which name the eval",
+    "# frozen_string_literal: true\n\nclass A\n  class_eval \"def a = 'x'\"\nend\n" =>
+      "the string's code holds the string literal 'x', which `# frozen_string_literal:` would treat differently in this file",
     "class A\n  class_eval code\nend\n" =>
       "`class_eval` is not given a string literal",
     "class A\n  instance_eval \"def a; end\"\nend\n" =>
