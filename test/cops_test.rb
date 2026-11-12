@@ -189,6 +189,25 @@ class CopsTest < Minitest::Test
     RUBY
   end
 
+  def test_a_define_method_in_an_if_branch_is_rewritten_in_place
+    source = <<~'RUBY'
+      class Store
+        unless method_defined?(:size)
+          define_method(:size) { @items.size }
+        end
+      end
+    RUBY
+    assert_equal <<~'RUBY', CopRunner.run(source).source
+      class Store
+        unless method_defined?(:size)
+          def size
+            @items.size
+          end
+        end
+      end
+    RUBY
+  end
+
   def test_a_macro_call_in_the_same_body_becomes_the_defs_the_macro_makes
     source = <<~'RUBY'
       # frozen_string_literal: true
@@ -292,6 +311,8 @@ class CopsTest < Minitest::Test
       "`class_eval` is not given a string literal",
     "class A\n  instance_eval \"def a; end\"\nend\n" =>
       "`instance_eval` runs the string on another receiver",
+    "class A\n  if x\n    private\n    define_method(:a) { 1 }\n  end\nend\n" =>
+      "the `if` around it calls a bare visibility method",
     "eval \"def a; end\"\n" =>
       "`eval` runs the string on another receiver"
   }.freeze

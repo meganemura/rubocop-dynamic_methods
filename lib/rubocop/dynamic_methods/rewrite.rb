@@ -63,7 +63,7 @@ module RuboCop
       end
 
       def plan(statement)
-        container, body = enclosing(statement)
+        container, body = lift(*enclosing(statement))
         if scope?(container)
           scope_body = scope_body(container)
           outer = assigned_locals(scope_body, except: statement) | visible_locals(container)
@@ -90,6 +90,19 @@ module RuboCop
         return [parent.parent, parent] if parent.begin_type? && parent.parent
 
         [parent, node]
+      end
+
+      # A branch of an `if` runs in the frame around it, so a def there defines
+      # what the define_method did. The condition itself is not a branch.
+      def lift(container, body)
+        while container&.if_type? && !container.condition.equal?(body)
+          if container.each_node(:send).any? { _1.receiver.nil? && !_1.arguments? && VISIBILITY.include?(_1.method_name) }
+            raise Refusal, "the `if` around it calls a bare visibility method"
+          end
+
+          container, body = enclosing(container)
+        end
+        [container, body]
       end
 
       def scope_body(scope)
@@ -141,7 +154,7 @@ module RuboCop
       end
 
       def plan_loop(loop)
-        scope, = enclosing(loop)
+        scope, = lift(*enclosing(loop))
         raise Refusal, "the loop is not called directly in a class or module body, or a block that opens one" unless scope?(scope)
 
         scope_body = scope.body

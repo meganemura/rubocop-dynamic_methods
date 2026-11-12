@@ -106,6 +106,8 @@ class RewriteTest < Minitest::Test
       params, body = TEMPLATES[tc.draw(integers(min_value: 0, max_value: TEMPLATES.size - 1))]
       frozen = tc.draw(booleans)
       section = tc.draw(sampled_from(["", "private\n  ", "protected\n  "]))
+      # A branch of an `if` in the body defines on the same class.
+      guard, close = tc.draw(sampled_from([["", ""], ["if true\n", "end\n"], ["unless false\n", "end\n"], ["if false\nelse\n", "end\n"]]))
       brace = tc.draw(booleans) && !body.include?("\n")
       block = if brace
                 "{#{params.empty? ? "" : " |#{params}|"} #{body} }"
@@ -116,10 +118,10 @@ class RewriteTest < Minitest::Test
         # frozen_string_literal: #{frozen}
 
         #{opener}
-          #{section}[#{value.inspect}].each do |v|
+          #{section}#{guard}[#{value.inspect}].each do |v|
             define_method(:m) #{block}
           end
-        end
+        #{close}end
       RUBY
       tc.note(source)
       seen[check(source)] += 1

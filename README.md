@@ -91,6 +91,7 @@ The reason is written for whoever writes the defs next, an agent or a person.
 RuboCop reads the source and never runs it, so a rewrite is possible only when the source fixes every name:
 
 - The call has no receiver, or `self`, and sits directly in a class or module body, or in an `each` over a literal Array or Hash there.
+  A branch of an `if` or `unless` there counts too, and the def stays in the branch.
   A block of `class_eval`, `module_eval`, `class_exec`, `module_exec`, `Class.new`, `Module.new`, `Struct.new`, or `Data.define` counts as a class body: a def there defines on the same module, with the same visibility and constants.
   A block of any other method, such as `included do`, does not, because only the code that runs it knows where it defines.
   A constant counts as a literal list when the same body sets it once, before the loop, to a literal Array or Hash, and `LIST.keys` and `LIST.values` count too.
