@@ -1,5 +1,9 @@
 # Changelog
 
+## [Unreleased]
+
+- The gem ships RBS signatures for its classes in `sig/`.
+
 ## [0.1.0] - 2026-11-13
 
 First release. rubocop-dynamic_methods finds methods that Ruby metaprogramming defines and writes them as plain `def`s, so a search for `def name` finds them.

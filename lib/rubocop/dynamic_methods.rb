@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+# rbs_inline: enabled
 
 # The entry RuboCop loads through the lint_roller plugin: the cops and the
 # plugin that hands RuboCop their default configuration.

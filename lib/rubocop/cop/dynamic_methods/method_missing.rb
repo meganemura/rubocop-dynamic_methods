@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+# rbs_inline: enabled
 
 module RuboCop
   module Cop
@@ -17,8 +18,9 @@ module RuboCop
       #   # good
       #   def draft? = @state == :draft
       class MethodMissing < Base
-        MSG = "Define the methods `method_missing` answers with `def`, so a search for their names finds them."
+        MSG = "Define the methods `method_missing` answers with `def`, so a search for their names finds them." #: String
 
+        #: (AST::Node node) -> void
         def on_def(node)
           add_offense(node.loc.name) if node.method?(:method_missing)
         end

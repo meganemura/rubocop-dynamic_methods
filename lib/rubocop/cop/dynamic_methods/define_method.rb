@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+# rbs_inline: enabled
 
 module RuboCop
   module Cop
@@ -35,8 +36,9 @@ module RuboCop
         include FrozenStringLiteral
         include DynamicMethods::Reporting
 
-        RESTRICT_ON_SEND = %i[define_method define_singleton_method].freeze
+        RESTRICT_ON_SEND = %i[define_method define_singleton_method].freeze #: Array[Symbol]
 
+        #: (AST::Node node) -> void
         def on_send(node)
           return unless node.block_node || node.arguments?
 
@@ -48,6 +50,7 @@ module RuboCop
 
         private
 
+        #: (AST::Node node) -> String
         def refusal(node)
           return "it defines the method on `#{node.receiver.source}`" unless RuboCop::DynamicMethods::Rewrite.implicit?(node)
           return body_refusal(node.arguments[1]) if node.arguments.size > 1
@@ -57,6 +60,7 @@ module RuboCop
 
         # What a body that is not a literal block is, so the reader knows
         # what a def would have to do instead.
+        #: (AST::Node body) -> String
         def body_refusal(body)
           if body.block_pass_type?
             inner = body.children.first
@@ -69,6 +73,7 @@ module RuboCop
 
         # `Kernel.instance_method(:send)` or `Time.method(:now)`: the method is
         # copied as it is, and a def would be a new method that calls it.
+        #: (AST::Node? node) -> String?
         def copied(node)
           return unless node&.send_type? && %i[instance_method method].include?(node.method_name) && node.first_argument
           unless %i[sym str].include?(node.first_argument.type)

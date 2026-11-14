@@ -25,6 +25,7 @@ Do not reference private tools, private repositories, or internal working docume
 ## Rules
 
 - The runtime dependencies are `rubocop` and `lint_roller`. The Gemfile pins the development versions exactly. Add a dependency only with the owner's approval, pinned exactly, at least 7 days past its release.
+- A change to `lib/` keeps `bundle exec steep check` green and regenerates `sig/generated/` in the same commit. Write `#:` and `# @rbs` types on every method and constant. A RuboCop method that `lib/` starts to call goes into `sig-deps/rubocop.rbs`.
 - A rewrite is exact or refused. Never write a def that is close (`docs/decisions/0001-exact-or-refused.md`).
 - Each refusal reason says what the code does, so the reader knows what to write by hand.
 - Write property tests with hegeltest wherever a property exists. A new rewrite rule needs a case in `test/hegel/rewrite_test.rb` that loads both versions.
@@ -34,6 +35,8 @@ Do not reference private tools, private repositories, or internal working docume
 ## Commands
 
 - `bundle exec bin/test` runs every test. `bundle exec bin/test test/cops_test.rb` runs one file.
-- `BUNDLE_WITHOUT=hegel bundle exec bin/test test/cops_test.rb` runs on Ruby older than 3.4, which hegeltest needs.
+- `BUNDLE_WITHOUT=hegel:types bundle exec bin/test test/cops_test.rb` runs on Ruby older than 3.4, which hegeltest needs. steep needs Ruby 3.3, so the `types` group stays out there too.
+- `bundle exec rbs-inline --output=sig/generated lib` writes `sig/generated/` from the `#:` and `# @rbs` comments in `lib/`.
+- `bundle exec steep check` checks `lib/` against `sig/` (the gem's signatures, which it ships) and `sig-deps/` (stubs for the parts of RuboCop and lint_roller that `lib/` calls, which it does not ship).
 - `bin/check-corpus ROOT` runs `rubocop -A` on a copy of ROOT, a folder of unpacked gems each with a `lib/`, and fails when a corrected file does not parse, lacks a def the cops named, or changes on a second run. It never loads the gems. Run it after a change to `rewrite.rb`.
 - To try the cops on real code, write a `.rubocop.yml` with `plugins: [rubocop-dynamic_methods]` in a scratch directory and run `BUNDLE_GEMFILE=<this checkout>/Gemfile bundle exec rubocop --only DynamicMethods` there.

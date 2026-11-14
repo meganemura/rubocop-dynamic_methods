@@ -1,0 +1,62 @@
+# Generated from lib/rubocop/cop/dynamic_methods/define_method.rb with RBS::Inline
+
+module RuboCop
+  module Cop
+    module DynamicMethods
+      # Finds methods defined with `define_method` or `define_singleton_method`.
+      # A search for `def name` does not find them.
+      #
+      # The autocorrection writes a plain `def` when the result is the same
+      # method: the same name, parameters, body, and visibility. That holds
+      # for a call directly in a class or module body (or a block Ruby runs as
+      # one, such as `Class.new do`), or in an `each` over a
+      # literal list there. Otherwise the offense names the reason, and the
+      # method is left for a person or an agent to write.
+      #
+      # The autocorrection is unsafe: it trusts that `define_method` and
+      # `Array#each` are Ruby's own.
+      #
+      # @example
+      #   # bad
+      #   %i[draft paid].each do |state|
+      #     define_method(:"#{state}?") { @state == state }
+      #   end
+      #
+      #   # good
+      #   def draft?
+      #     @state == :draft
+      #   end
+      #
+      #   def paid?
+      #     @state == :paid
+      #   end
+      class DefineMethod < Base
+        extend AutoCorrector
+
+        include FrozenStringLiteral
+
+        include DynamicMethods::Reporting
+
+        RESTRICT_ON_SEND: Array[Symbol]
+
+        # : (AST::Node node) -> void
+        def on_send: (AST::Node node) -> void
+
+        private
+
+        # : (AST::Node node) -> String
+        def refusal: (AST::Node node) -> String
+
+        # What a body that is not a literal block is, so the reader knows
+        # what a def would have to do instead.
+        # : (AST::Node body) -> String
+        def body_refusal: (AST::Node body) -> String
+
+        # `Kernel.instance_method(:send)` or `Time.method(:now)`: the method is
+        # copied as it is, and a def would be a new method that calls it.
+        # : (AST::Node? node) -> String?
+        def copied: (AST::Node? node) -> String?
+      end
+    end
+  end
+end

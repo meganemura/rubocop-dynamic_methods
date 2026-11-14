@@ -1,0 +1,163 @@
+# The parts of RuboCop, rubocop-ast, and parser that this gem calls. Those
+# gems ship no RBS, and a fetched collection would add a network step to
+# the check, so the check reads these stubs instead. They are not shipped:
+# a user who types RuboCop gets its types from elsewhere.
+#
+# RuboCop::AST::Node holds the methods of its subclasses that this gem
+# calls (SendNode#method_name, BlockNode#send_node, and the rest), because
+# the code reads a node's type before it calls them.
+#
+# A child accessor such as `receiver` or `body` returns nil when the child
+# is absent, but the stub says Node. The code knows a child is there from
+# the node's type or from an earlier check on another node, which the type
+# checker cannot follow, so an optional type would ask for a cast at
+# almost every call. A call of a method that Node does not have is still
+# an error.
+
+module Parser
+  module Source
+    class Buffer
+      def source: () -> String
+    end
+
+    class Range
+      def begin_pos: () -> Integer
+      def end_pos: () -> Integer
+      def with: (?begin_pos: Integer, ?end_pos: Integer) -> Range
+    end
+
+    class Comment
+      def text: () -> String
+      def loc: () -> untyped
+      def source_range: () -> Range
+    end
+  end
+end
+
+module RuboCop
+  module AST
+    class Token
+      def comment?: () -> bool
+      def line: () -> Integer
+    end
+
+    class Node
+      def type: () -> Symbol
+      def children: () -> Array[untyped]
+      def source: () -> String
+      def source_range: () -> Parser::Source::Range
+      def loc: () -> untyped
+      def first_line: () -> Integer
+      def single_line?: () -> bool
+      def multiline?: () -> bool
+
+      def parent: () -> Node
+      def each_node: (*Symbol) { (Node) -> void } -> self
+                   | (*Symbol) -> Enumerator[Node, self]
+      def each_descendant: (*Symbol) { (Node) -> void } -> self
+                         | (*Symbol) -> Enumerator[Node, self]
+      def each_ancestor: (*Symbol) { (Node) -> void } -> self
+                       | (*Symbol) -> Enumerator[Node, self]
+      def each_child_node: (*Symbol) { (Node) -> void } -> self
+                         | (*Symbol) -> Enumerator[Node, self]
+
+      def arg_type?: () -> bool
+      def begin_type?: () -> bool
+      def block_pass_type?: () -> bool
+      def block_type?: () -> bool
+      def casgn_type?: () -> bool
+      def cbase_type?: () -> bool
+      def const_type?: () -> bool
+      def defined_type?: () -> bool
+      def defs_type?: () -> bool
+      def dstr_type?: () -> bool
+      def dsym_type?: () -> bool
+      def false_type?: () -> bool
+      def hash_type?: () -> bool
+      def if_type?: () -> bool
+      def int_type?: () -> bool
+      def lvar_type?: () -> bool
+      def lvasgn_type?: () -> bool
+      def numblock_type?: () -> bool
+      def pair_type?: () -> bool
+      def sclass_type?: () -> bool
+      def self_type?: () -> bool
+      def send_type?: () -> bool
+      def splat_type?: () -> bool
+      def str_type?: () -> bool
+      def sym_type?: () -> bool
+      def true_type?: () -> bool
+
+      # SendNode, DefNode, BlockNode.
+      def method_name: () -> Symbol
+      def method?: (Symbol) -> bool
+      def arguments?: () -> bool
+      # An Array of nodes for a call, an ArgsNode for a block or a def.
+      def arguments: () -> untyped
+      def receiver: () -> Node
+      def first_argument: () -> Node
+      def last_argument: () -> Node
+      def block_node: () -> Node
+      def lambda_or_proc?: () -> bool
+      def send_node: () -> Node
+      def body: () -> Node
+
+      # IfNode.
+      def condition: () -> Node
+
+      # ConstNode and CasgnNode.
+      def namespace: () -> Node
+      def short_name: () -> Symbol
+      def name: () -> Symbol
+      def expression: () -> Node
+
+      # ClassNode and ModuleNode.
+      def identifier: () -> Node
+      def parent_class: () -> Node
+
+      # Literals, pairs, and hashes.
+      def value: () -> untyped
+      def key: () -> Node
+      def value_omission?: () -> bool
+      def pairs: () -> Array[Node]
+      def heredoc?: () -> bool
+    end
+
+    class ProcessedSource
+      def initialize: (String source, Float ruby_version, ?String? path) -> void
+      def valid_syntax?: () -> bool
+      def ast: () -> Node
+      def comments: () -> Array[Parser::Source::Comment]
+      def tokens: () -> Array[Token]
+      def buffer: () -> Parser::Source::Buffer
+    end
+  end
+
+  class ProcessedSource = AST::ProcessedSource
+
+  class MagicComment
+    def self.parse: (String comment) -> MagicComment
+    def frozen_string_literal: () -> bool?
+    def frozen_string_literal_specified?: () -> bool
+  end
+
+  module Cop
+    class Corrector
+      def replace: (untyped range, String content) -> void
+    end
+
+    class Base
+      def on_new_investigation: () -> void
+      def add_offense: (untyped node_or_range, ?message: String?) ?{ (Corrector) -> void } -> void
+      def processed_source: () -> AST::ProcessedSource
+      def target_ruby_version: () -> Float
+    end
+
+    module AutoCorrector
+    end
+
+    module FrozenStringLiteral
+      def frozen_string_literals_enabled?: () -> bool
+    end
+  end
+end

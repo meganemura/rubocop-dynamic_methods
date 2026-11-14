@@ -1,11 +1,18 @@
 # frozen_string_literal: true
+# rbs_inline: enabled
 
 module RuboCop
   module Cop
     module DynamicMethods
       # The offense both rewriting cops add: the names a rewrite defines, or
       # the reason there is none, which tells an agent what to write by hand.
+      #
+      # @rbs module-self Base, FrozenStringLiteral
       module Reporting
+        # @rbs @rewrite: ::RuboCop::DynamicMethods::Rewrite?
+        # @rbs @corrected_ranges: Array[Parser::Source::Range]?
+
+        #: () -> void
         def on_new_investigation
           @rewrite = nil
           @corrected_ranges = nil
@@ -14,6 +21,7 @@ module RuboCop
 
         private
 
+        #: (AST::Node node, AST::Node statement) { () -> void } -> void
         def report(node, statement)
           plan = begin
             yield
@@ -33,6 +41,7 @@ module RuboCop
           end
         end
 
+        #: (AST::Node _node, ::RuboCop::DynamicMethods::Rewrite::Plan? plan) -> String
         def message_for(_node, plan)
           return "Define this method with `def`, so a search for its name finds it." if plan.nil?
 
@@ -40,6 +49,7 @@ module RuboCop
           "Define #{names.size > 3 ? "#{names.first(3).join(", ")} and #{names.size - 3} more" : names.join(", ")} with `def`, so a search for `def name` finds #{names.size == 1 ? "it" : "them"}."
         end
 
+        #: () -> ::RuboCop::DynamicMethods::Rewrite
         def rewrite
           @rewrite ||= RuboCop::DynamicMethods::Rewrite.new(
             processed_source,
@@ -48,6 +58,7 @@ module RuboCop
           )
         end
 
+        #: () -> Array[Parser::Source::Range]
         def corrected_ranges
           @corrected_ranges ||= []
         end

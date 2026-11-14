@@ -1,0 +1,17 @@
+# What rbs-inline cannot write from lib/rubocop/dynamic_methods/rewrite.rb:
+# a class made with Class.new, and a method defined in the block of
+# Data.define.
+
+module RuboCop
+  module DynamicMethods
+    class Rewrite
+      class Refusal < StandardError
+      end
+
+      class Plan
+        # The range of the first edit, which names the statement a plan replaces.
+        def range: () -> Parser::Source::Range
+      end
+    end
+  end
+end

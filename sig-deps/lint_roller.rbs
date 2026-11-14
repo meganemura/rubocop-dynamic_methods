@@ -1,0 +1,23 @@
+# The parts of lint_roller that this gem calls. lint_roller ships no RBS;
+# see rubocop.rbs for why these stubs are not shipped.
+
+module LintRoller
+  class About
+    def initialize: (?name: String, ?version: String, ?homepage: String, ?description: String) -> void
+  end
+
+  class Context
+    def engine: () -> Symbol?
+  end
+
+  class Rules
+    def initialize: (?type: Symbol, ?config_format: Symbol, ?value: untyped, ?error: Exception?) -> void
+  end
+
+  class Plugin
+    def initialize: (?Hash[untyped, untyped] config) -> void
+    def about: () -> About
+    def supported?: (Context context) -> bool
+    def rules: (Context context) -> Rules
+  end
+end

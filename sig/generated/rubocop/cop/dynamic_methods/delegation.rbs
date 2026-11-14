@@ -1,0 +1,57 @@
+# Generated from lib/rubocop/cop/dynamic_methods/delegation.rb with RBS::Inline
+
+module RuboCop
+  module Cop
+    module DynamicMethods
+      # Finds methods that delegation defines: ActiveSupport's `delegate` and
+      # `delegate_missing_to`, and Forwardable's `def_delegator` and
+      # `def_delegators`. A search for `def name` does not find them.
+      #
+      # It only reports, and it is disabled by default: delegation is common,
+      # accepted style, and a def is not the same method. Forwardable calls
+      # through `__send__`, so it reaches private methods, and both take any
+      # arguments where a def would name them.
+      #
+      # @example
+      #   # bad
+      #   delegate :name, :email, to: :user
+      #
+      #   # good
+      #   def name = user.name
+      #
+      #   def email = user.email
+      class Delegation < Base
+        RESTRICT_ON_SEND: Array[Symbol]
+
+        # : (AST::Node node) -> void
+        def on_send: (AST::Node node) -> void
+
+        private
+
+        # `delegate :a, :b, to: :x, prefix: true` defines `x_a` and `x_b`.
+        # : (AST::Node node) -> String?
+        def delegate: (AST::Node node) -> String?
+
+        # : (AST::Node node) -> String
+        def missing: (AST::Node node) -> String
+
+        # `def_delegator :@x, :a, :b` defines `b`, or `a` when no alias is given.
+        # : (AST::Node node) -> String?
+        def delegator: (AST::Node node) -> String?
+
+        # : (AST::Node node) -> String?
+        def delegators: (AST::Node node) -> String?
+
+        # : (Symbol spell, Array[String] names, String target) -> String
+        def report: (Symbol spell, Array[String] names, String target) -> String
+
+        # : (AST::Node? hash, Symbol key) -> AST::Node?
+        def option: (AST::Node? hash, Symbol key) -> AST::Node?
+
+        # A name as written, or the code that makes it.
+        # : (AST::Node node) -> String
+        def literal: (AST::Node node) -> String
+      end
+    end
+  end
+end

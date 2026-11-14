@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+# rbs_inline: enabled
 
 module RuboCop
   module DynamicMethods
@@ -8,40 +9,62 @@ module RuboCop
     # moves code inside one class or module body, so each def keeps the class,
     # the constant scope, and the default visibility the original had.
     class Rewrite
+      # @rbs!
+      #   # A text that replaces a range of the file.
+      #   type edit = [Parser::Source::Range, String]
+      #
+      #   # What each loop variable holds during one run of a loop.
+      #   type run = Hash[Symbol, Value]
+
+      # sig/rewrite.rbs declares it as a class, which rbs-inline cannot write.
+      # @rbs skip
       Refusal = Class.new(StandardError)
 
       # The texts that replace ranges of the file, as [range, text] pairs, and
       # the names they define.
-      Plan = Data.define(:edits, :names) do
-        def range = edits.first.first
+      Plan = Data.define(
+        :edits, #: Array[edit]
+        :names #: Array[String]
+      ) do
+        # Steep checks a def in this block as a method of Rewrite, so it
+        # skips the line; sig/rewrite.rbs declares the method on Plan.
+        def range = edits.first.first # steep:ignore
       end
 
       # One literal that a loop variable holds during one run of the loop.
-      Value = Data.define(:object, :code)
+      Value = Data.define(
+        :object, #: Symbol | String | Integer | bool | nil
+        :code #: String
+      )
 
-      SCOPES = %i[class module sclass].freeze
-      BLOCKS = %i[block numblock itblock].freeze
+      SCOPES = %i[class module sclass].freeze #: Array[Symbol]
+      BLOCKS = %i[block numblock itblock].freeze #: Array[Symbol]
       # Nodes that start their own `next` target or their own method body.
-      JUMP_TARGETS = %i[block numblock itblock while until while_post until_post for def defs].freeze
-      SPELLS = %i[define_method define_singleton_method].freeze
-      EVALS = %i[class_eval module_eval].freeze
+      JUMP_TARGETS = %i[block numblock itblock while until while_post until_post for def defs].freeze #: Array[Symbol]
+      SPELLS = %i[define_method define_singleton_method].freeze #: Array[Symbol]
+      EVALS = %i[class_eval module_eval].freeze #: Array[Symbol]
       # Calls that see the locals of a block but not of a def.
-      LOCAL_READERS = %i[binding local_variables block_given? iterator? eval].freeze
-      VISIBILITY = %i[private protected public module_function].freeze
+      LOCAL_READERS = %i[binding local_variables block_given? iterator? eval].freeze #: Array[Symbol]
+      VISIBILITY = %i[private protected public module_function].freeze #: Array[Symbol]
       # Blocks read as a loop over values; a block of any other method is not.
-      ITERATORS = %i[each each_pair each_with_index each_with_object each_key each_value map flat_map times].freeze
+      ITERATORS = %i[each each_pair each_with_index each_with_object each_key each_value map flat_map times].freeze #: Array[Symbol]
       # Methods that take method names and read a String as its Symbol.
       NAME_TAKERS = %i[alias_method attr_reader attr_writer attr_accessor private public protected module_function
-                       private_class_method public_class_method ruby2_keywords undef_method remove_method].freeze
+                       private_class_method public_class_method ruby2_keywords undef_method remove_method].freeze #: Array[Symbol]
       # Of those, the ones that answer the same for a String and its Symbol:
       # attr_* answer Symbols, and alias_method the new name's Symbol.
-      SAME_RESULT = %i[alias_method attr_reader attr_writer attr_accessor].freeze
-      LITERALS = %i[array hash pair sym str int float nil true false].freeze
-      CORE_PARENTS = %i[Object StandardError RuntimeError ArgumentError TypeError].freeze
-      NOT_IN_BODY = "it is not called directly in a class or module body, or a block that opens one"
+      SAME_RESULT = %i[alias_method attr_reader attr_writer attr_accessor].freeze #: Array[Symbol]
+      LITERALS = %i[array hash pair sym str int float nil true false].freeze #: Array[Symbol]
+      CORE_PARENTS = %i[Object StandardError RuntimeError ArgumentError TypeError].freeze #: Array[Symbol]
+      NOT_IN_BODY = "it is not called directly in a class or module body, or a block that opens one" #: String
       # A fixnum is the same object on every read; a larger Integer is not.
-      FIXNUM = (-(2**62))...(2**62)
+      FIXNUM = (-(2**62))...(2**62) #: Range[Integer]
 
+      # @rbs @source: AST::ProcessedSource
+      # @rbs @ruby_version: Float
+      # @rbs @frozen_strings: bool
+
+      #: (AST::ProcessedSource processed_source, ruby_version: Float, frozen_strings: bool) -> void
       def initialize(processed_source, ruby_version:, frozen_strings:)
         @source = processed_source
         @ruby_version = ruby_version
@@ -50,6 +73,7 @@ module RuboCop
 
       # The statement that defines: a block node for define_method, a send
       # node for class_eval.
+      #: (AST::Node node) -> bool
       def self.statement?(node)
         if BLOCKS.include?(node.type)
           SPELLS.include?(node.method_name) && implicit?(node.send_node)
@@ -58,16 +82,19 @@ module RuboCop
         end
       end
 
+      #: (AST::Node send) -> bool
       def self.implicit?(send)
         send.receiver.nil? || send.receiver.self_type?
       end
 
+      #: (AST::Node statement) -> Plan
       def plan(statement)
-        container, body = lift(*enclosing(statement))
+        # Steep cannot spread a tuple into positional arguments.
+        container, body = lift(*enclosing(statement)) # steep:ignore ArgumentTypeMismatch
         if scope?(container)
           scope_body = scope_body(container)
           outer = assigned_locals(scope_body, except: statement) | visible_locals(container)
-          run = {}
+          run = {} #: run
           text, names = write(statement, run, outer, moved: 0, scope_body:)
           Plan.new(edits: [[full_range(statement), text]], names:)
         elsif BLOCKS.include?(container.type) && container.body.equal?(body) && ITERATORS.include?(container.method_name)
@@ -84,6 +111,7 @@ module RuboCop
 
       private
 
+      #: (AST::Node node) -> [AST::Node, AST::Node]
       def enclosing(node)
         parent = node.parent
         raise Refusal, NOT_IN_BODY if parent.nil?
@@ -94,6 +122,7 @@ module RuboCop
 
       # A branch of an `if` runs in the frame around it, so a def there defines
       # what the define_method did. The condition itself is not a branch.
+      #: (AST::Node container, AST::Node body) -> [AST::Node, AST::Node]
       def lift(container, body)
         while container&.if_type? && !container.condition.equal?(body)
           if container.each_node(:send).any? { _1.receiver.nil? && !_1.arguments? && VISIBILITY.include?(_1.method_name) }
@@ -105,6 +134,7 @@ module RuboCop
         [container, body]
       end
 
+      #: (AST::Node scope) -> AST::Node?
       def scope_body(scope)
         scope.body
       end
@@ -113,6 +143,7 @@ module RuboCop
       # define_method there define on the same module, with the same default
       # visibility and the same constant lookup. `included do` and
       # `class_methods do` are not here: what runs them is the library's.
+      #: (AST::Node node) -> bool?
       def scope?(node)
         return true if SCOPES.include?(node.type)
         return false unless BLOCKS.include?(node.type)
@@ -126,12 +157,14 @@ module RuboCop
         end
       end
 
+      #: (AST::Node? node, Array[Symbol] names) -> bool?
       def core_constant?(node, names)
         node&.const_type? && (node.namespace.nil? || node.namespace.cbase_type?) && names.include?(node.short_name)
       end
 
       # Locals a block can read from the code around it, up to the nearest
       # def, class, or module, which starts a scope of its own.
+      #: (AST::Node scope) -> Array[Symbol]
       def visible_locals(scope)
         return [] if SCOPES.include?(scope.type)
 
@@ -153,8 +186,9 @@ module RuboCop
         names.uniq
       end
 
+      #: (AST::Node loop) -> Plan
       def plan_loop(loop)
-        scope, = lift(*enclosing(loop))
+        scope, = lift(*enclosing(loop)) # steep:ignore ArgumentTypeMismatch
         raise Refusal, "the loop is not called directly in a class or module body, or a block that opens one" unless scope?(scope)
 
         scope_body = scope.body
@@ -163,7 +197,7 @@ module RuboCop
 
         outer = assigned_locals(scope_body, except: loop) | loop.arguments.children.map(&:name) | visible_locals(scope)
         indent = " " * loop.loc.column
-        names = []
+        names = [] #: Array[String]
         # [text, whether it defines] for each statement of each run.
         pieces = runs.flat_map do |run|
           statements.map do |statement|
@@ -172,11 +206,11 @@ module RuboCop
             end
 
             moved = statement.loc.column - loop.loc.column
-            next [copy(statement, run, moved:, loop:), false] unless self.class.statement?(statement)
+            next [copy(statement, run, moved:, loop:), false] unless self.class.statement?(statement) #: [String, bool]
 
             text, defined = write(statement, run, outer, moved:, scope_body:, loop:)
             names.concat(defined)
-            [text, true]
+            [text, true] #: [String, bool]
           end
         end
         notes = loose_comments(loop, statements).map { "#{_1}\n#{indent}" }.join
@@ -188,6 +222,7 @@ module RuboCop
       # macro's own method: `def self.name` (or `def name` in `class << self`)
       # sits on the class's singleton class, which comes first in the lookup
       # unless a module is prepended to it. The macro stays for other callers.
+      #: (AST::Node macro) -> Plan
       def plan_macro(macro)
         name = macro.method_name
         reason = "it runs inside the method `#{name}`, and only its callers know which module and names it defines"
@@ -201,25 +236,26 @@ module RuboCop
         raise Refusal, "#{reason}; no call in this class body gives it literal arguments" if calls.empty?
 
         check_macro(macro, scope_body, singleton)
-        names = []
+        names = [] #: Array[String]
         edits = calls.map do |call, run|
           check_visibility(scope_body, call, "a method such as `#{name}`")
           pieces = statements_of(macro.body).map do |statement|
             moved = statement.loc.column - call.loc.column
             raise Refusal, "the method `#{name}` is not indented under its callers" unless moved.positive?
-            next [copy(statement, run, moved:, loop: macro), false] unless self.class.statement?(statement)
+            next [copy(statement, run, moved:, loop: macro), false] unless self.class.statement?(statement) #: [String, bool]
 
             text, defined = write(statement, run, run.keys, moved:, scope_body:, loop: macro, anchor: call)
             names.concat(defined)
-            [text, true]
+            [text, true] #: [String, bool]
           end
-          [full_range(call), join_pieces(pieces, " " * call.loc.column)]
+          [full_range(call), join_pieces(pieces, " " * call.loc.column)] #: edit
         end
         Plan.new(edits:, names:)
       end
 
       # The calls of the macro after its def, each a statement of the class
       # body with one literal for each parameter, as [call, run] pairs.
+      #: (AST::Node macro, AST::Node? scope_body) -> Array[[AST::Node, run]]
       def macro_calls(macro, scope_body)
         params = macro.arguments.children
         raise Refusal, "the method `#{macro.method_name}` takes parameters other than plain names" unless params.all?(&:arg_type?)
@@ -235,6 +271,7 @@ module RuboCop
         end
       end
 
+      #: (AST::Node macro, AST::Node scope_body, bool? singleton) -> void
       def check_macro(macro, scope_body, singleton)
         defs = scope_body.each_node(:def, :defs).count do |node|
           node.method_name == macro.method_name && (node.defs_type? || node.parent&.sclass_type? || node.parent&.parent&.sclass_type?)
@@ -253,6 +290,8 @@ module RuboCop
       end
 
       # The nodes of a body that run with it, leaving out the bodies of defs.
+      # NODE is any child of a node: a node, a Symbol, a literal, or nil.
+      #: (untyped node, ?Array[AST::Node] found) -> Array[AST::Node]
       def runs_in_body(node, found = [])
         return found unless node.is_a?(RuboCop::AST::Node) && !%i[def defs].include?(node.type)
 
@@ -263,8 +302,10 @@ module RuboCop
 
       # A blank line sets each def apart; calls such as `alias_method` that
       # follow one another stay together. Pieces are [text, whether it defines].
+      #: (Array[[String, bool]] pieces, String indent) -> String
       def join_pieces(pieces, indent)
-        rest = pieces.each_cons(2).map { |(_, a), (b_text, b)| (a || b ? "\n\n" : "\n") + indent + b_text }
+        # Steep reads a destructured element of `each_cons` as possibly nil.
+        rest = pieces.each_cons(2).map { |(_, a), (b_text, b)| (a || b ? "\n\n" : "\n") + indent + b_text } # steep:ignore ArgumentTypeMismatch
         pieces.first.first + rest.join
       end
 
@@ -272,8 +313,9 @@ module RuboCop
       # `private`, copied once per run with the loop variables written as
       # their literals. It moves from the block into the class body, so
       # anything that tells the two apart is refused.
+      #: (AST::Node statement, run run, moved: Integer, loop: AST::Node) -> String
       def copy(statement, run, moved:, loop:)
-        edits = []
+        edits = [] #: Array[edit]
         walk = lambda do |node|
           next unless node.is_a?(RuboCop::AST::Node)
 
@@ -287,6 +329,7 @@ module RuboCop
       end
 
       # Adds the edits for one node, and returns the children it wrote whole.
+      #: (AST::Node node, AST::Node statement, run run, AST::Node loop, Array[edit] edits) -> Array[AST::Node]
       def copy_edits(node, statement, run, loop, edits)
         case node.type
         when :lvar
@@ -312,6 +355,7 @@ module RuboCop
         []
       end
 
+      #: (AST::Node send, AST::Node statement, run run, Array[edit] edits, AST::Node loop) -> Array[AST::Node]
       def copy_send(send, statement, run, edits, loop)
         return [] unless self.class.implicit?(send)
 
@@ -335,12 +379,14 @@ module RuboCop
         end
       end
 
+      #: (AST::Node loop) -> String
       def where(loop)
         %i[def defs].include?(loop.type) ? "the method `#{loop.method_name}`" : "the loop"
       end
 
       # A call whose value nothing reads: the statement, or a branch of an
       # `if` that is the statement.
+      #: (AST::Node send, AST::Node statement) -> bool
       def discarded?(send, statement)
         return true if send.equal?(statement)
 
@@ -350,6 +396,7 @@ module RuboCop
 
       # The Symbol a name argument comes to, when it is built from the loop
       # variables alone; nil otherwise.
+      #: (AST::Node node, run run) -> Symbol?
       def folded_name(node, run)
         case node.type
         when :lvar
@@ -366,13 +413,14 @@ module RuboCop
       end
 
       # Each run of the loop as variable name => Value.
+      #: (AST::Node loop, AST::Node? scope_body) -> Array[run]
       def runs_of(loop, scope_body)
         send = loop.send_node
         raise Refusal, "the loop is `#{send.method_name}`, not `each`" unless %i[each each_pair].include?(send.method_name)
         raise Refusal, "the loop passes arguments to `#{send.method_name}`" if send.arguments?
         raise Refusal, "the loop uses numbered parameters" unless loop.block_type?
 
-        params = loop.arguments.children
+        params = loop.arguments.children #: Array[AST::Node]
         unless params.all?(&:arg_type?) && !loop.arguments.source.to_s.match?(/,\s*\|\z/)
           raise Refusal, "the loop takes parameters other than plain names"
         end
@@ -383,24 +431,29 @@ module RuboCop
         if list.first.is_a?(Array)
           raise Refusal, "the loop over a hash does not take a key and a value" unless params.size == 2
 
-          list.map { |key, value| { params[0].name => key, params[1].name => value } }
+          list.map { |key, value| { params[0].name => key, params[1].name => value } } #: Array[run]
         else
           raise Refusal, "the loop does not take one value" unless params.size == 1 && send.method_name == :each
 
-          list.map { { params[0].name => _1 } }
+          list.map { { params[0].name => _1 } } #: Array[run]
         end
       end
 
       # The literals a loop runs over: Values, or [Value, Value] pairs.
+      # The caller reads the first element to tell the two shapes apart, which
+      # a union of the two Array types would not let it do.
+      #: (AST::Node? node, AST::Node? scope_body, AST::Node loop) -> Array[untyped]
       def list_of(node, scope_body, loop)
         return hash_part(node, scope_body, loop) if node&.send_type? && %i[keys values].include?(node.method_name) && !node.arguments?
 
         node = constant_value(node, scope_body, loop) if node&.const_type?
+        # Steep does not narrow NODE by `case node&.type`; a branch below runs
+        # only when NODE is an array or a hash node.
         case node&.type
         when :array
-          node.children.map { value_of(_1) }
+          node.children.map { value_of(_1) } # steep:ignore NoMethod
         when :hash
-          node.children.map do |pair|
+          node.children.map do |pair| # steep:ignore NoMethod
             raise Refusal, "the hash holds more than literal pairs" unless pair.pair_type?
 
             [value_of(pair.key), value_of(pair.value)]
@@ -411,6 +464,7 @@ module RuboCop
       end
 
       # `LIST.keys` or `LIST.values` of a literal Hash, as the Values of one side.
+      #: (AST::Node node, AST::Node? scope_body, AST::Node loop) -> Array[Value]
       def hash_part(node, scope_body, loop)
         pairs = list_of(node.receiver, scope_body, loop)
         raise Refusal, "the loop runs over `#{node.source}`, which is not the keys or values of a literal Hash" unless pairs.first.is_a?(Array)
@@ -421,6 +475,7 @@ module RuboCop
       # A constant set once in this body, before the loop, to a literal list.
       # A bare constant could also come from an outer module or an ancestor,
       # which another file can set or reopen, so only this body counts.
+      #: (AST::Node node, AST::Node? scope_body, AST::Node loop) -> AST::Node
       def constant_value(node, scope_body, loop)
         unless node.namespace.nil?
           raise Refusal, "the loop runs over `#{node.source}`, a constant of another module, which another file can change"
@@ -444,6 +499,7 @@ module RuboCop
       # An unfrozen list stays as written only when no code between its
       # assignment and the loop could change it: the statements there may
       # only define, or call a method of NAME_TAKERS with literal names.
+      #: (Symbol name, AST::Node set, AST::Node loop, AST::Node? scope_body) -> void
       def check_untouched(name, set, loop, scope_body)
         between = statements_of(scope_body).select do
           _1.source_range.begin_pos >= set.source_range.end_pos && _1.source_range.end_pos <= loop.source_range.begin_pos
@@ -459,6 +515,7 @@ module RuboCop
 
       # Whether the code reads the constant as it runs; a def's body reads it
       # only when the method is called, after the loop.
+      #: (AST::Node node, Symbol name) -> bool
       def names_now?(node, name)
         return false if %i[def defs].include?(node.type)
         return true if node.const_type? && node.short_name == name
@@ -469,6 +526,7 @@ module RuboCop
       # Code that defines and runs nothing else, so it cannot reach a list.
       # Reading a constant can run code too, through autoload, and a parent
       # class can run code through `inherited`, so only core parents count.
+      #: (AST::Node node) -> bool?
       def inert?(node)
         case node.type
         when :def, :defs, :str, :sym, :int, :nil, :true, :false then true
@@ -486,11 +544,13 @@ module RuboCop
       end
 
       # A literal made of literals, frozen or not.
+      #: (AST::Node node) -> bool
       def literal_tree?(node)
         node = node.receiver if node.send_type? && node.method?(:freeze) && !node.arguments? && node.receiver
         node.each_node.all? { LITERALS.include?(_1.type) }
       end
 
+      #: (AST::Node node) -> Value
       def value_of(node)
         case node.type
         when :sym
@@ -508,6 +568,7 @@ module RuboCop
         end
       end
 
+      #: (AST::Node? body) -> Array[AST::Node]
       def statements_of(body)
         return [] if body.nil?
 
@@ -516,8 +577,9 @@ module RuboCop
 
       # Locals the code around a statement assigns, which a block shares and a
       # def does not.
+      #: (AST::Node? body, except: AST::Node) -> Array[Symbol]
       def assigned_locals(body, except:)
-        names = []
+        names = [] #: Array[Symbol]
         walk = lambda do |node|
           next unless node.is_a?(RuboCop::AST::Node)
           next if node.equal?(except)
@@ -531,6 +593,7 @@ module RuboCop
         names.uniq
       end
 
+      #: (AST::Node statement, run run, Array[Symbol] outer, moved: Integer, scope_body: AST::Node?, ?loop: AST::Node?, ?anchor: AST::Node) -> [String, Array[String]]
       def write(statement, run, outer, moved:, scope_body:, loop: nil, anchor: loop || statement)
         if BLOCKS.include?(statement.type)
           write_block(statement, run, outer, moved:, loop:, column: anchor.loc.column)
@@ -539,6 +602,7 @@ module RuboCop
         end
       end
 
+      #: (AST::Node block, run run, Array[Symbol] outer, moved: Integer, loop: AST::Node?, column: Integer) -> [String, Array[String]]
       def write_block(block, run, outer, moved:, loop:, column:)
         send = block.send_node
         raise Refusal, "the block uses numbered parameters" if block.numblock_type?
@@ -571,8 +635,9 @@ module RuboCop
 
       # Edits inside a block: loop variables become their literal, and a `next`
       # that leaves the method becomes `return`.
+      #: (AST::Node block, run run, Array[Symbol] outer, moving: boolish) -> Array[edit]
       def block_edits(block, run, outer, moving:)
-        edits = []
+        edits = [] #: Array[edit]
         block.each_descendant do |node|
           case node.type
           when :lvar, :lvasgn
@@ -612,6 +677,7 @@ module RuboCop
       # which `# frozen_string_literal: true` freezes. A string read elsewhere
       # is one shared object, and only a frozen literal is the same object on
       # every call.
+      #: (AST::Node node, Value value) -> edit
       def loop_read(node, value)
         holder = node.parent
         raise Refusal, "the block asks `defined?` of the loop variable" if holder&.defined_type?
@@ -629,6 +695,7 @@ module RuboCop
         [node.source_range, value.code]
       end
 
+      #: (AST::Node node) -> void
       def check_moved_node(node)
         raise Refusal, "the block reads `__LINE__`, which the rewrite moves" if node.int_type? && node.source == "__LINE__"
         if %i[str dstr xstr dsym].include?(node.type) && (node.respond_to?(:heredoc?) && node.heredoc? || node.multiline?)
@@ -636,6 +703,7 @@ module RuboCop
         end
       end
 
+      #: (AST::Node node, AST::Node block) -> bool
       def own_level?(node, block)
         node.each_ancestor.each do |ancestor|
           return true if ancestor.equal?(block)
@@ -644,6 +712,7 @@ module RuboCop
         false
       end
 
+      #: (AST::Node send, run run, scope_body: AST::Node?, anchor: AST::Node) -> [String, Array[String]]
       def write_string(send, run, scope_body:, anchor:)
         unless (1..3).cover?(send.arguments.size) && %i[str dstr].include?(send.first_argument.type) && !send.block_node
           raise Refusal, "`#{send.method_name}` is not given a string literal"
@@ -656,16 +725,18 @@ module RuboCop
 
         names = defs_in(code)
         lines = code.chomp.lines(chomp: true)
-        margin = lines.reject { _1.strip.empty? }.map { _1[/\A */].size }.min || 0
+        # `/\A */` matches every line, so the match is never nil.
+        margin = lines.reject { _1.strip.empty? }.map { _1[/\A */].size }.min || 0 # steep:ignore NoMethod
         indent = " " * anchor.loc.column
         text = lines.map.with_index do |line, index|
-          stripped = line.strip.empty? ? "" : line[margin..]
+          stripped = line.strip.empty? ? "" : line[margin..] #: String
           index.zero? || stripped.empty? ? stripped : indent + stripped
         end.join("\n")
         [text, names]
       end
 
       # A def a string eval writes is public even after a bare `private`.
+      #: (AST::Node? scope_body, AST::Node anchor, ?String maker) -> void
       def check_visibility(scope_body, anchor, maker = "a string eval")
         last = statements_of(scope_body)
                .take_while { _1.source_range.begin_pos < anchor.source_range.begin_pos }
@@ -676,6 +747,7 @@ module RuboCop
         raise Refusal, "it follows a bare `#{last.method_name}`, and a def from #{maker} stays public"
       end
 
+      #: (AST::Node node, run run) -> String
       def string_value(node, run)
         case node.type
         when :str
@@ -696,6 +768,7 @@ module RuboCop
         end
       end
 
+      #: (String code) -> Array[String]
       def defs_in(code)
         parsed = RuboCop::ProcessedSource.new(code, @ruby_version, "(eval)")
         raise Refusal, "the string is not valid Ruby on its own" unless parsed.valid_syntax? && parsed.ast
@@ -710,6 +783,7 @@ module RuboCop
       # The file's `# frozen_string_literal:` comment does not reach code a
       # string eval compiles, so a string literal there is frozen or not by
       # its own comment. Moved into the file, it would take the file's.
+      #: (AST::ProcessedSource parsed) -> void
       def check_string_literals(parsed)
         return if self.class.frozen_setting(parsed) == self.class.frozen_setting(@source)
 
@@ -725,6 +799,7 @@ module RuboCop
       end
 
       # true, false, or nil when the source has no magic comment.
+      #: (AST::ProcessedSource processed_source) -> bool?
       def self.frozen_setting(processed_source)
         first_code = processed_source.tokens.find { !_1.comment? }&.line || Float::INFINITY
         processed_source.comments.take_while { _1.loc.line < first_code }.each do |comment|
@@ -734,6 +809,7 @@ module RuboCop
         nil
       end
 
+      #: (AST::Node node, run run) -> String
       def name_of(node, run)
         case node&.type
         when :sym, :str
@@ -758,6 +834,7 @@ module RuboCop
         end
       end
 
+      #: (String name, String prefix) -> void
       def check_name(name, prefix)
         parsed = RuboCop::ProcessedSource.new("def #{prefix}#{name}; end", @ruby_version, "(name)")
         ast = parsed.ast
@@ -766,16 +843,19 @@ module RuboCop
         raise Refusal, "`#{name}` cannot be written after `def`"
       end
 
+      #: (Integer from, Integer to, Array[edit] edits) -> String
       def slice(from, to, edits)
         text = +""
         position = from
         edits.select { _1[0].begin_pos >= from && _1[0].end_pos <= to }.sort_by { _1[0].begin_pos }.each do |range, replacement|
-          text << buffer_source[position...range.begin_pos] << replacement
+          # Each range lies inside the buffer, so the slice is a String.
+          text << buffer_source[position...range.begin_pos] << replacement # steep:ignore ArgumentTypeMismatch
           position = range.end_pos
         end
-        text << buffer_source[position...to]
+        text << buffer_source[position...to] # steep:ignore ArgumentTypeMismatch
       end
 
+      #: (String text, Integer moved) -> String
       def reindent(text, moved)
         return text if moved.zero?
 
@@ -790,6 +870,7 @@ module RuboCop
       end
 
       # Comments in a loop that no definition holds, kept above the defs.
+      #: (AST::Node loop, Array[AST::Node] statements) -> Array[String]
       def loose_comments(loop, statements)
         loop_range = full_range(loop)
         @source.comments.select do |comment|
@@ -800,6 +881,7 @@ module RuboCop
       end
 
       # A node's range, widened to the end of any heredoc it starts.
+      #: (AST::Node node) -> Parser::Source::Range
       def full_range(node)
         finish = node.source_range.end_pos
         node.each_node(:str, :dstr, :xstr) do |string|
@@ -808,12 +890,13 @@ module RuboCop
           finish = [finish, string.loc.heredoc_end.end_pos].max
         end
         if finish > node.source_range.end_pos
-          gap = buffer_source[node.source_range.end_pos...node.each_node(:str, :dstr, :xstr).select { _1.respond_to?(:heredoc?) && _1.heredoc? }.map { _1.loc.heredoc_body.begin_pos }.min]
+          gap = buffer_source[node.source_range.end_pos...node.each_node(:str, :dstr, :xstr).select { _1.respond_to?(:heredoc?) && _1.heredoc? }.map { _1.loc.heredoc_body.begin_pos }.min] #: String
           raise Refusal, "code follows the heredoc's opening line" unless gap.match?(/\A[ \t]*\n\z/)
         end
         node.source_range.with(end_pos: finish)
       end
 
+      #: () -> String
       def buffer_source
         @source.buffer.source
       end

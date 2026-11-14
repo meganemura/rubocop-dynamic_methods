@@ -1,0 +1,7 @@
+# Generated from lib/rubocop/dynamic_methods/version.rb with RBS::Inline
+
+module RuboCop
+  module DynamicMethods
+    VERSION: String
+  end
+end

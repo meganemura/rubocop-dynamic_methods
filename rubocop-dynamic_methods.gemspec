@@ -17,7 +17,7 @@ Gem::Specification.new do |spec|
     "default_lint_roller_plugin" => "RuboCop::DynamicMethods::Plugin"
   }
   spec.required_ruby_version = ">= 3.2.0"
-  spec.files = Dir["lib/**/*.rb", "config/*.yml", "README.md", "README.ja.md", "LICENSE", "CHANGELOG.md"]
+  spec.files = Dir["lib/**/*.rb", "sig/**/*.rbs", "config/*.yml", "README.md", "README.ja.md", "LICENSE", "CHANGELOG.md"]
   spec.add_dependency "lint_roller", "~> 1.1"
   spec.add_dependency "rubocop", ">= 1.72.0", "< 2"
 end

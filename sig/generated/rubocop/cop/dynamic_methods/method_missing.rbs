@@ -1,0 +1,29 @@
+# Generated from lib/rubocop/cop/dynamic_methods/method_missing.rb with RBS::Inline
+
+module RuboCop
+  module Cop
+    module DynamicMethods
+      # Finds `method_missing`. The methods it answers have no `def` at all,
+      # so no search finds them, and no rewrite can list them. Define each
+      # method it answers with `def`, or with a call this department can
+      # rewrite.
+      #
+      # @example
+      #   # bad
+      #   def method_missing(name, *args)
+      #     name.end_with?("?") ? @state == name.to_s.chomp("?").to_sym : super
+      #   end
+      #
+      #   # good
+      #   def draft? = @state == :draft
+      class MethodMissing < Base
+        MSG: String
+
+        # : (AST::Node node) -> void
+        def on_def: (AST::Node node) -> void
+
+        alias on_defs on_def
+      end
+    end
+  end
+end

@@ -1,0 +1,309 @@
+# Generated from lib/rubocop/dynamic_methods/rewrite.rb with RBS::Inline
+
+module RuboCop
+  module DynamicMethods
+    # Writes one defining statement, or the loop it sits in, as plain defs.
+    # A rewrite is exact or it raises Refusal with the reason: a def that only
+    # looks the same would teach a reader the wrong method. The rewrite only
+    # moves code inside one class or module body, so each def keeps the class,
+    # the constant scope, and the default visibility the original had.
+    class Rewrite
+      # A text that replaces a range of the file.
+      type edit = [ Parser::Source::Range, String ]
+
+      # What each loop variable holds during one run of a loop.
+      type run = Hash[Symbol, Value]
+
+      # The texts that replace ranges of the file, as [range, text] pairs, and
+      # the names they define.
+      class Plan < Data
+        attr_reader edits(): Array[edit]
+
+        attr_reader names(): Array[String]
+
+        def self.new: (Array[edit] edits, Array[String] names) -> instance
+                    | (edits: Array[edit], names: Array[String]) -> instance
+
+        def self.members: () -> [ :edits, :names ]
+
+        def members: () -> [ :edits, :names ]
+      end
+
+      # One literal that a loop variable holds during one run of the loop.
+      class Value < Data
+        attr_reader object(): Symbol | String | Integer | bool | nil
+
+        attr_reader code(): String
+
+        def self.new: (Symbol | String | Integer | bool | nil object, String code) -> instance
+                    | (object: Symbol | String | Integer | bool | nil, code: String) -> instance
+
+        def self.members: () -> [ :object, :code ]
+
+        def members: () -> [ :object, :code ]
+      end
+
+      SCOPES: Array[Symbol]
+
+      BLOCKS: Array[Symbol]
+
+      # Nodes that start their own `next` target or their own method body.
+      JUMP_TARGETS: Array[Symbol]
+
+      SPELLS: Array[Symbol]
+
+      EVALS: Array[Symbol]
+
+      # Calls that see the locals of a block but not of a def.
+      LOCAL_READERS: Array[Symbol]
+
+      VISIBILITY: Array[Symbol]
+
+      # Blocks read as a loop over values; a block of any other method is not.
+      ITERATORS: Array[Symbol]
+
+      # Methods that take method names and read a String as its Symbol.
+      NAME_TAKERS: Array[Symbol]
+
+      # Of those, the ones that answer the same for a String and its Symbol:
+      # attr_* answer Symbols, and alias_method the new name's Symbol.
+      SAME_RESULT: Array[Symbol]
+
+      LITERALS: Array[Symbol]
+
+      CORE_PARENTS: Array[Symbol]
+
+      NOT_IN_BODY: String
+
+      # A fixnum is the same object on every read; a larger Integer is not.
+      FIXNUM: Range[Integer]
+
+      @frozen_strings: bool
+
+      @ruby_version: Float
+
+      @source: AST::ProcessedSource
+
+      # : (AST::ProcessedSource processed_source, ruby_version: Float, frozen_strings: bool) -> void
+      def initialize: (AST::ProcessedSource processed_source, ruby_version: Float, frozen_strings: bool) -> void
+
+      # The statement that defines: a block node for define_method, a send
+      # node for class_eval.
+      # : (AST::Node node) -> bool
+      def self.statement?: (AST::Node node) -> bool
+
+      # : (AST::Node send) -> bool
+      def self.implicit?: (AST::Node send) -> bool
+
+      # : (AST::Node statement) -> Plan
+      def plan: (AST::Node statement) -> Plan
+
+      private
+
+      # : (AST::Node node) -> [AST::Node, AST::Node]
+      def enclosing: (AST::Node node) -> [ AST::Node, AST::Node ]
+
+      # A branch of an `if` runs in the frame around it, so a def there defines
+      # what the define_method did. The condition itself is not a branch.
+      # : (AST::Node container, AST::Node body) -> [AST::Node, AST::Node]
+      def lift: (AST::Node container, AST::Node body) -> [ AST::Node, AST::Node ]
+
+      # : (AST::Node scope) -> AST::Node?
+      def scope_body: (AST::Node scope) -> AST::Node?
+
+      # A class or module body, or a block that Ruby runs as one: a def and a
+      # define_method there define on the same module, with the same default
+      # visibility and the same constant lookup. `included do` and
+      # `class_methods do` are not here: what runs them is the library's.
+      # : (AST::Node node) -> bool?
+      def scope?: (AST::Node node) -> bool?
+
+      # : (AST::Node? node, Array[Symbol] names) -> bool?
+      def core_constant?: (AST::Node? node, Array[Symbol] names) -> bool?
+
+      # Locals a block can read from the code around it, up to the nearest
+      # def, class, or module, which starts a scope of its own.
+      # : (AST::Node scope) -> Array[Symbol]
+      def visible_locals: (AST::Node scope) -> Array[Symbol]
+
+      # : (AST::Node loop) -> Plan
+      def plan_loop: (AST::Node loop) -> Plan
+
+      # A class method that defines methods, written out at each call in the
+      # same class body that gives it literal arguments. Such a call runs the
+      # macro's own method: `def self.name` (or `def name` in `class << self`)
+      # sits on the class's singleton class, which comes first in the lookup
+      # unless a module is prepended to it. The macro stays for other callers.
+      # : (AST::Node macro) -> Plan
+      def plan_macro: (AST::Node macro) -> Plan
+
+      # The calls of the macro after its def, each a statement of the class
+      # body with one literal for each parameter, as [call, run] pairs.
+      # : (AST::Node macro, AST::Node? scope_body) -> Array[[AST::Node, run]]
+      def macro_calls: (AST::Node macro, AST::Node? scope_body) -> Array[[ AST::Node, run ]]
+
+      # : (AST::Node macro, AST::Node scope_body, bool? singleton) -> void
+      def check_macro: (AST::Node macro, AST::Node scope_body, bool? singleton) -> void
+
+      # The nodes of a body that run with it, leaving out the bodies of defs.
+      # NODE is any child of a node: a node, a Symbol, a literal, or nil.
+      # : (untyped node, ?Array[AST::Node] found) -> Array[AST::Node]
+      def runs_in_body: (untyped node, ?Array[AST::Node] found) -> Array[AST::Node]
+
+      # A blank line sets each def apart; calls such as `alias_method` that
+      # follow one another stay together. Pieces are [text, whether it defines].
+      # : (Array[[String, bool]] pieces, String indent) -> String
+      def join_pieces: (Array[[ String, bool ]] pieces, String indent) -> String
+
+      # A statement of the loop that defines nothing, such as `alias_method` or
+      # `private`, copied once per run with the loop variables written as
+      # their literals. It moves from the block into the class body, so
+      # anything that tells the two apart is refused.
+      # : (AST::Node statement, run run, moved: Integer, loop: AST::Node) -> String
+      def copy: (AST::Node statement, run run, moved: Integer, loop: AST::Node) -> String
+
+      # Adds the edits for one node, and returns the children it wrote whole.
+      # : (AST::Node node, AST::Node statement, run run, AST::Node loop, Array[edit] edits) -> Array[AST::Node]
+      def copy_edits: (AST::Node node, AST::Node statement, run run, AST::Node loop, Array[edit] edits) -> Array[AST::Node]
+
+      # : (AST::Node send, AST::Node statement, run run, Array[edit] edits, AST::Node loop) -> Array[AST::Node]
+      def copy_send: (AST::Node send, AST::Node statement, run run, Array[edit] edits, AST::Node loop) -> Array[AST::Node]
+
+      # : (AST::Node loop) -> String
+      def where: (AST::Node loop) -> String
+
+      # A call whose value nothing reads: the statement, or a branch of an
+      # `if` that is the statement.
+      # : (AST::Node send, AST::Node statement) -> bool
+      def discarded?: (AST::Node send, AST::Node statement) -> bool
+
+      # The Symbol a name argument comes to, when it is built from the loop
+      # variables alone; nil otherwise.
+      # : (AST::Node node, run run) -> Symbol?
+      def folded_name: (AST::Node node, run run) -> Symbol?
+
+      # Each run of the loop as variable name => Value.
+      # : (AST::Node loop, AST::Node? scope_body) -> Array[run]
+      def runs_of: (AST::Node loop, AST::Node? scope_body) -> Array[run]
+
+      # The literals a loop runs over: Values, or [Value, Value] pairs.
+      # The caller reads the first element to tell the two shapes apart, which
+      # a union of the two Array types would not let it do.
+      # : (AST::Node? node, AST::Node? scope_body, AST::Node loop) -> Array[untyped]
+      def list_of: (AST::Node? node, AST::Node? scope_body, AST::Node loop) -> Array[untyped]
+
+      # `LIST.keys` or `LIST.values` of a literal Hash, as the Values of one side.
+      # : (AST::Node node, AST::Node? scope_body, AST::Node loop) -> Array[Value]
+      def hash_part: (AST::Node node, AST::Node? scope_body, AST::Node loop) -> Array[Value]
+
+      # A constant set once in this body, before the loop, to a literal list.
+      # A bare constant could also come from an outer module or an ancestor,
+      # which another file can set or reopen, so only this body counts.
+      # : (AST::Node node, AST::Node? scope_body, AST::Node loop) -> AST::Node
+      def constant_value: (AST::Node node, AST::Node? scope_body, AST::Node loop) -> AST::Node
+
+      # An unfrozen list stays as written only when no code between its
+      # assignment and the loop could change it: the statements there may
+      # only define, or call a method of NAME_TAKERS with literal names.
+      # : (Symbol name, AST::Node set, AST::Node loop, AST::Node? scope_body) -> void
+      def check_untouched: (Symbol name, AST::Node set, AST::Node loop, AST::Node? scope_body) -> void
+
+      # Whether the code reads the constant as it runs; a def's body reads it
+      # only when the method is called, after the loop.
+      # : (AST::Node node, Symbol name) -> bool
+      def names_now?: (AST::Node node, Symbol name) -> bool
+
+      # Code that defines and runs nothing else, so it cannot reach a list.
+      # Reading a constant can run code too, through autoload, and a parent
+      # class can run code through `inherited`, so only core parents count.
+      # : (AST::Node node) -> bool?
+      def inert?: (AST::Node node) -> bool?
+
+      # A literal made of literals, frozen or not.
+      # : (AST::Node node) -> bool
+      def literal_tree?: (AST::Node node) -> bool
+
+      # : (AST::Node node) -> Value
+      def value_of: (AST::Node node) -> Value
+
+      # : (AST::Node? body) -> Array[AST::Node]
+      def statements_of: (AST::Node? body) -> Array[AST::Node]
+
+      # Locals the code around a statement assigns, which a block shares and a
+      # def does not.
+      # : (AST::Node? body, except: AST::Node) -> Array[Symbol]
+      def assigned_locals: (AST::Node? body, except: AST::Node) -> Array[Symbol]
+
+      # : (AST::Node statement, run run, Array[Symbol] outer, moved: Integer, scope_body: AST::Node?, ?loop: AST::Node?, ?anchor: AST::Node) -> [String, Array[String]]
+      def write: (AST::Node statement, run run, Array[Symbol] outer, moved: Integer, scope_body: AST::Node?, ?loop: AST::Node?, ?anchor: AST::Node) -> [ String, Array[String] ]
+
+      # : (AST::Node block, run run, Array[Symbol] outer, moved: Integer, loop: AST::Node?, column: Integer) -> [String, Array[String]]
+      def write_block: (AST::Node block, run run, Array[Symbol] outer, moved: Integer, loop: AST::Node?, column: Integer) -> [ String, Array[String] ]
+
+      # Edits inside a block: loop variables become their literal, and a `next`
+      # that leaves the method becomes `return`.
+      # : (AST::Node block, run run, Array[Symbol] outer, moving: boolish) -> Array[edit]
+      def block_edits: (AST::Node block, run run, Array[Symbol] outer, moving: boolish) -> Array[edit]
+
+      # A read inside a symbol's `#{}` writes the text in place. A string keeps
+      # `#{}`, because a string with no interpolation left would be a literal,
+      # which `# frozen_string_literal: true` freezes. A string read elsewhere
+      # is one shared object, and only a frozen literal is the same object on
+      # every call.
+      # : (AST::Node node, Value value) -> edit
+      def loop_read: (AST::Node node, Value value) -> edit
+
+      # : (AST::Node node) -> void
+      def check_moved_node: (AST::Node node) -> void
+
+      # : (AST::Node node, AST::Node block) -> bool
+      def own_level?: (AST::Node node, AST::Node block) -> bool
+
+      # : (AST::Node send, run run, scope_body: AST::Node?, anchor: AST::Node) -> [String, Array[String]]
+      def write_string: (AST::Node send, run run, scope_body: AST::Node?, anchor: AST::Node) -> [ String, Array[String] ]
+
+      # A def a string eval writes is public even after a bare `private`.
+      # : (AST::Node? scope_body, AST::Node anchor, ?String maker) -> void
+      def check_visibility: (AST::Node? scope_body, AST::Node anchor, ?String maker) -> void
+
+      # : (AST::Node node, run run) -> String
+      def string_value: (AST::Node node, run run) -> String
+
+      # : (String code) -> Array[String]
+      def defs_in: (String code) -> Array[String]
+
+      # The file's `# frozen_string_literal:` comment does not reach code a
+      # string eval compiles, so a string literal there is frozen or not by
+      # its own comment. Moved into the file, it would take the file's.
+      # : (AST::ProcessedSource parsed) -> void
+      def check_string_literals: (AST::ProcessedSource parsed) -> void
+
+      # true, false, or nil when the source has no magic comment.
+      # : (AST::ProcessedSource processed_source) -> bool?
+      def self.frozen_setting: (AST::ProcessedSource processed_source) -> bool?
+
+      # : (AST::Node node, run run) -> String
+      def name_of: (AST::Node node, run run) -> String
+
+      # : (String name, String prefix) -> void
+      def check_name: (String name, String prefix) -> void
+
+      # : (Integer from, Integer to, Array[edit] edits) -> String
+      def slice: (Integer from, Integer to, Array[edit] edits) -> String
+
+      # : (String text, Integer moved) -> String
+      def reindent: (String text, Integer moved) -> String
+
+      # Comments in a loop that no definition holds, kept above the defs.
+      # : (AST::Node loop, Array[AST::Node] statements) -> Array[String]
+      def loose_comments: (AST::Node loop, Array[AST::Node] statements) -> Array[String]
+
+      # A node's range, widened to the end of any heredoc it starts.
+      # : (AST::Node node) -> Parser::Source::Range
+      def full_range: (AST::Node node) -> Parser::Source::Range
+
+      # : () -> String
+      def buffer_source: () -> String
+    end
+  end
+end

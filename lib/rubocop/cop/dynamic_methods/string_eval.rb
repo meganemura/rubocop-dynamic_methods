@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+# rbs_inline: enabled
 
 module RuboCop
   module Cop
@@ -35,8 +36,9 @@ module RuboCop
         include FrozenStringLiteral
         include DynamicMethods::Reporting
 
-        RESTRICT_ON_SEND = %i[class_eval module_eval instance_eval eval].freeze
+        RESTRICT_ON_SEND = %i[class_eval module_eval instance_eval eval].freeze #: Array[Symbol]
 
+        #: (AST::Node node) -> void
         def on_send(node)
           # `instance_eval(&block)` runs a block, whose defs a search finds.
           return if node.block_node || !node.arguments? || node.first_argument.block_pass_type?
@@ -51,6 +53,7 @@ module RuboCop
 
         # The lead of a refused offense says what is known about the code:
         # what it evaluates, and what it defines when the string says.
+        #: (AST::Node node, ::RuboCop::DynamicMethods::Rewrite::Plan? plan) -> String
         def message_for(node, plan)
           return super if plan
 
@@ -75,8 +78,9 @@ module RuboCop
 
         # The def names of an interpolated string, with each interpolation
         # kept as written, such as `#{name}?`; nil when they cannot be read.
+        #: (AST::Node dstr) -> Array[String]?
         def pattern_names(dstr)
-          holes = {}
+          holes = {} #: Hash[String, String]
           flat = lambda do |node|
             node.children.map do |part|
               next part.value if part.str_type?
@@ -92,6 +96,7 @@ module RuboCop
         end
 
         # The names of the defs in the code, or nil when it is not Ruby.
+        #: (String code) -> Array[String]?
         def defined_names(code)
           parsed = RuboCop::ProcessedSource.new(code, target_ruby_version, "(eval)")
           return unless parsed.valid_syntax?
@@ -99,6 +104,7 @@ module RuboCop
           parsed.ast&.each_node(:def, :defs)&.map { _1.defs_type? ? "self.#{_1.method_name}" : _1.method_name.to_s } || []
         end
 
+        #: (AST::Node node) -> String
         def refusal(node)
           return "`#{node.method_name}` runs the string on another receiver" if %i[eval instance_eval].include?(node.method_name)
 

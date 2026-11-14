@@ -1,0 +1,34 @@
+# Generated from lib/rubocop/cop/dynamic_methods/reporting.rb with RBS::Inline
+
+module RuboCop
+  module Cop
+    module DynamicMethods
+      # The offense both rewriting cops add: the names a rewrite defines, or
+      # the reason there is none, which tells an agent what to write by hand.
+      #
+      # @rbs module-self Base, FrozenStringLiteral
+      module Reporting : Base, FrozenStringLiteral
+        @rewrite: ::RuboCop::DynamicMethods::Rewrite?
+
+        @corrected_ranges: Array[Parser::Source::Range]?
+
+        # : () -> void
+        def on_new_investigation: () -> void
+
+        private
+
+        # : (AST::Node node, AST::Node statement) { () -> void } -> void
+        def report: (AST::Node node, AST::Node statement) { () -> void } -> void
+
+        # : (AST::Node _node, ::RuboCop::DynamicMethods::Rewrite::Plan? plan) -> String
+        def message_for: (AST::Node _node, ::RuboCop::DynamicMethods::Rewrite::Plan? plan) -> String
+
+        # : () -> ::RuboCop::DynamicMethods::Rewrite
+        def rewrite: () -> ::RuboCop::DynamicMethods::Rewrite
+
+        # : () -> Array[Parser::Source::Range]
+        def corrected_ranges: () -> Array[Parser::Source::Range]
+      end
+    end
+  end
+end

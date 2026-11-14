@@ -1,0 +1,18 @@
+# Generated from lib/rubocop/dynamic_methods/plugin.rb with RBS::Inline
+
+module RuboCop
+  module DynamicMethods
+    # Tells RuboCop where the cops' default configuration is.
+    class Plugin < LintRoller::Plugin
+      def about: () -> LintRoller::About
+
+      # @rbs context: LintRoller::Context
+      # @rbs return: bool
+      def supported?: (LintRoller::Context context) -> bool
+
+      # @rbs _context: LintRoller::Context
+      # @rbs return: LintRoller::Rules
+      def rules: (untyped _context) -> LintRoller::Rules
+    end
+  end
+end
