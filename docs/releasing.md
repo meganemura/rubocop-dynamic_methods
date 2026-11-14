@@ -19,6 +19,8 @@ Nobody pushes a `v*` tag or runs `gem push` by hand.
 The first version is the one `lib/rubocop/dynamic_methods/version.rb` already holds, 0.1.0.
 The commit that renames `## [Unreleased]` to `## [0.1.0]` does not change `version.rb`, so its push starts nothing.
 Start that release by hand from `main`: in the Actions tab, open Release and choose Run workflow on `main`, or run `gh workflow run release.yml --ref main`.
+Give that run the RubyGems.org id of the account that will own the gem in the `rubygems-owner` input, as the account's Pending Trusted Publishers page shows it.
+RubyGems needs the id only to create the gem, so a later release starts from its push and sends no owner.
 A run on any other branch stops at `check`.
 
 When a job fails, rerun the failed jobs.
@@ -59,7 +61,5 @@ After the first successful push, RubyGems turns it into the gem's trusted publis
 
    Leave the workflow repository fields empty: the workflow lives in this repository.
 3. Choose Create Pending trusted publisher.
-
-The publish job names the owning account by its RubyGems.org id (`RUBYGEMS_OWNER` in `release.yml`), which RubyGems needs to create a new gem from a pending publisher.
 
 A rename of the workflow file, of the environment, or of the repository breaks publishing until the publisher on RubyGems is changed to match.
