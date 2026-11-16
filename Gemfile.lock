@@ -97,6 +97,8 @@ GEM
     terminal-table (4.0.0)
       unicode-display_width (>= 1.1.1, < 4)
     tsort (0.2.0)
+    typegap (0.1.0)
+      steep (>= 2.1.0, < 2.2)
     unicode-display_width (3.3.0)
       unicode-emoji (~> 4.3)
     unicode-emoji (4.3.0)
@@ -123,6 +125,7 @@ DEPENDENCIES
   rubocop (= 1.92.2)
   rubocop-dynamic_methods!
   steep (= 2.1.0)
+  typegap (= 0.1.0)
 
 BUNDLED WITH
    2.6.9
