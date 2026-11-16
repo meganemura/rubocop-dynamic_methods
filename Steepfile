@@ -7,4 +7,10 @@ target :lib do
   signature "sig", "sig-deps"
   check "lib"
   library "pathname"
+
+  # Steep reports a node it cannot type as UnexpectedError and skips the
+  # rest of that node. The default level is hint, so the check would pass.
+  configure_code_diagnostics do |hash|
+    hash[Steep::Diagnostic::Ruby::UnexpectedError] = :error
+  end
 end
